@@ -1997,7 +1997,7 @@ function WorldDropSection({ drops=[], onChange }) {
         <div style={{ textAlign:'center', padding:'52px 0', color:'var(--text-tertiary)' }}>
           <div style={{ fontSize:36, marginBottom:10, opacity:.2 }}>👗</div>
           <div style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', marginBottom:6 }}>No wardrobe slots yet</div>
-          <div style={{ fontSize:13 }}>Add wardrobe slots to organize your influencer's looks.</div>
+          <div style={{ fontSize:13 }}>Add wardrobe slots to organize your influencer&apos;s looks.</div>
         </div>
       )}
       {drops.length>0&&(
@@ -4556,7 +4556,7 @@ ${shotsWithBeats.join('\n\n')}`
           </div>
           <div style={{fontSize:12,color:'var(--text-secondary)',display:'flex',alignItems:'center',gap:6}}>
             <span>
-              <span style={{fontWeight:600,color:'var(--text-primary)'}}>{influencer.name}'s images</span>{' '}
+              <span style={{fontWeight:600,color:'var(--text-primary)'}}>{influencer.name}&apos;s images</span>{' '}
               are auto-included as identity references
             </span>
             <div style={{position:'relative',flexShrink:0}}
