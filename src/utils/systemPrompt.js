@@ -1090,7 +1090,7 @@ function buildSkinBlock(timeLabel, gender, physicalDesc) {
   return `— Visible individual pores across ${pronoun} T-zone, nose, and cheeks; pores on the lit side cast tiny directional micro-shadows from the key light
 — ${envReactions[timeLabel] || envReactions['overcast soft daylight']}
 — ${R(['a small healing blemish on the left jaw, slightly pinker than surrounding skin', 'faint asymmetric sun pigmentation near the right temple', 'two freckles placed asymmetrically across the nose and left cheek', 'a faint old thin scar below the right jawline — barely there, photographically real', 'slight horizontal pressure line across the forehead from a hat worn earlier'])}
-— Left brow sits marginally higher than the right; one nostril slightly narrower; cupid\'s bow peaks uneven — natural asymmetry throughout
+— Left brow sits marginally higher than the right; one nostril slightly narrower; cupid's bow peaks uneven — natural asymmetry throughout
 — Subtle digital sensor noise in the shadow areas consistent with iPhone auto-ISO`
 }
 
