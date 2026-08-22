@@ -38,16 +38,16 @@ function useTypewriter() {
 
 // All available images — add more paths here as you collect them
 const ALL_IMGS = [
-  '/inf/i1.png',  '/inf/i2.png',  '/inf/i3.jpg',  '/inf/i4.jpg',  '/inf/i5.png',
-  '/inf/i6.jpg',  '/inf/i7.png',  '/inf/i8.png',  '/inf/i9.png',  '/inf/i10.png',
-  '/inf/i11.png', '/inf/i12.png', '/inf/i13.png', '/inf/i14.png', '/inf/i15.png',
-  '/inf/i16.png', '/inf/i17.png', '/inf/i18.png', '/inf/i19.png', '/inf/i20.png',
-  '/inf/i21.png', '/inf/i22.png', '/inf/i23.png', '/inf/i24.png', '/inf/i25.png',
-  '/inf/i26.png', '/inf/i27.png', '/inf/i28.png', '/inf/i29.png',
-  '/inf/i30.png', '/inf/i31.png', '/inf/i32.png', '/inf/i33.png', '/inf/i34.png',
-  '/inf/i35.png', '/inf/i36.png', '/inf/i37.png', '/inf/i38.png', '/inf/i39.png',
-  '/inf/i40.png', '/inf/i41.png',
-  '/inf/i42.png', '/inf/i43.png', '/inf/i44.png', '/inf/i45.png', '/inf/i46.png',
+  '/inf/i1.jpg',  '/inf/i2.jpg',  '/inf/i3.jpg',  '/inf/i4.jpg',  '/inf/i5.jpg',
+  '/inf/i6.jpg',  '/inf/i7.jpg',  '/inf/i8.jpg',  '/inf/i9.jpg',  '/inf/i10.jpg',
+  '/inf/i11.jpg', '/inf/i12.jpg', '/inf/i13.jpg', '/inf/i14.jpg', '/inf/i15.jpg',
+  '/inf/i16.jpg', '/inf/i17.jpg', '/inf/i18.jpg', '/inf/i19.jpg', '/inf/i20.jpg',
+  '/inf/i21.jpg', '/inf/i22.jpg', '/inf/i23.jpg', '/inf/i24.jpg', '/inf/i25.jpg',
+  '/inf/i26.jpg', '/inf/i27.jpg', '/inf/i28.jpg', '/inf/i29.jpg',
+  '/inf/i30.jpg', '/inf/i31.jpg', '/inf/i32.jpg', '/inf/i33.jpg', '/inf/i34.jpg',
+  '/inf/i35.jpg', '/inf/i36.jpg', '/inf/i37.jpg', '/inf/i38.jpg', '/inf/i39.jpg',
+  '/inf/i40.jpg', '/inf/i41.jpg',
+  '/inf/i42.jpg', '/inf/i43.jpg', '/inf/i44.jpg', '/inf/i45.jpg', '/inf/i46.jpg',
 ]
 
 // 6 card slots — position, rotation, size, float timing

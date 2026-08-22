@@ -84,7 +84,7 @@ function buildPhysicalDescString(d) {
 }
 
 // Floating card configuration
-const ALL_IMGS = ['/inf/i1.png', '/inf/i2.png', '/inf/i3.jpg', '/inf/i4.jpg', '/inf/i5.png', '/inf/i6.jpg', '/inf/i7.png', '/inf/i8.png', '/inf/i9.png', '/inf/i10.png', '/inf/i11.png', '/inf/i12.png', '/inf/i13.png', '/inf/i14.png', '/inf/i15.png', '/inf/i16.png']
+const ALL_IMGS = ['/inf/i1.jpg', '/inf/i2.jpg', '/inf/i3.jpg', '/inf/i4.jpg', '/inf/i5.jpg', '/inf/i6.jpg', '/inf/i7.jpg', '/inf/i8.jpg', '/inf/i9.jpg', '/inf/i10.jpg', '/inf/i11.jpg', '/inf/i12.jpg', '/inf/i13.jpg', '/inf/i14.jpg', '/inf/i15.jpg', '/inf/i16.jpg']
 const CARD_CONFIG = [
   { left: '1%',  top: '15%', w: 162, rot: '-9deg',  op: 0.48, period: 9,  sway: 12, delay: 0.0 },
   { left: '5%',  top: '58%', w: 140, rot:  '5deg',  op: 0.34, period: 11, sway: 15, delay: 1.9 },

@@ -6370,7 +6370,7 @@ export default function Influencers() {
       ) : (
         <main style={{flex:1,position:'relative',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
           <div style={{position:'absolute',inset:0,display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:3,opacity:0.18,pointerEvents:'none',transform:'scale(1.04)'}}>
-            {['/inf/i1.png','/inf/i4.jpg','/inf/i2.png','/inf/i5.png','/inf/i3.jpg','/inf/i6.jpg'].map((src,i)=>(
+            {['/inf/i1.jpg','/inf/i4.jpg','/inf/i2.jpg','/inf/i5.jpg','/inf/i3.jpg','/inf/i6.jpg'].map((src,i)=>(
               <img key={i} src={src} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
             ))}
           </div>

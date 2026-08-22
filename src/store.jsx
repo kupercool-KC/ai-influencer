@@ -159,10 +159,10 @@ const MARCUS_SEED = {
   gender: 'Male',
   type: 'Influencer',
   createdAt: 1715000002000,
-  mainImage: '/marcus/main.png',
-  characterSheetImage: '/marcus/sheet.png',
-  closeUpImage1: '/marcus/closeup1.png',
-  closeUpImage2: '/marcus/closeup2.png',
+  mainImage: '/marcus/main.jpg',
+  characterSheetImage: '/marcus/sheet.jpg',
+  closeUpImage1: '/marcus/closeup1.jpg',
+  closeUpImage2: '/marcus/closeup2.jpg',
   prompt: '',
   age: '22',
   backstory: 'loves tech since he was young',
@@ -195,8 +195,8 @@ const CAMILA_SEED = {
   createdAt: 1715000001000,
   mainImage: '/camila/main.jpg',
   characterSheetImage: '/camila/sheet.jpg',
-  closeUpImage1: '/camila/closeup1.png',
-  closeUpImage2: '/camila/closeup2.png',
+  closeUpImage1: '/camila/closeup1.jpg',
+  closeUpImage2: '/camila/closeup2.jpg',
   prompt: 'Candid iPhone photo of @image1, wearing the complete outfit from @image2, reproducing all clothing, headwear, and accessories exactly. Match skin texture and facial detail from @image3 and @image4. Mid-action — mid-laugh, mid-sip, mid-step, or mid-reach — body fully committed to the action, expression caught at the apex. Eyes can be on lens (late-arrival) or completely off-axis. Hands engaged with the action, not posed. Expression: direct and serious — neutral mouth at rest, steady gaze into the lens, no smile. Composed and self-assured. Eyes directed off-axis — looking to the side or slightly above the camera, as if unaware of being photographed. A small front window table, street traffic soft and blurred outside the glass, a half-drunk flat white on the table beside her. Soft morning window light from one side, cool and directional. Eye-level, 24mm, handheld. 9:16, chest-up framing. Deep focus, no bokeh, photorealistic. No other people in frame.',
   age: '22',
   backstory: "Camilla got into fitness relatively young, but after realizing she wasn't passionate in personal training clients in the gym, she switched careers to teaching yoga classes.",
@@ -215,11 +215,11 @@ const CAMILA_SEED = {
   homeImages: [],
   brandDealImages: [],
   wardrobeSlots: [
-    { id: 'camila-wardrobe-sporty', name: 'sporty fit', image: '/camila/wardrobe/sporty_fit.png' },
-    { id: 'camila-wardrobe-yoga',   name: 'yoga fit',   image: '/camila/wardrobe/yoga_fit.png'   },
+    { id: 'camila-wardrobe-sporty', name: 'sporty fit', image: '/camila/wardrobe/sporty_fit.jpg' },
+    { id: 'camila-wardrobe-yoga',   name: 'yoga fit',   image: '/camila/wardrobe/yoga_fit.jpg'   },
   ],
   brandDeals: [
-    { id: 'camila-deal-swatch', brand: 'swatch', category: 'fashion', image: '/camila/brand_deals/swatch_original.png', images: ['/camila/brand_deals/swatch_original.png'], characterSheet: '/camila/brand_deals/swatch_sheet.png' },
+    { id: 'camila-deal-swatch', brand: 'swatch', category: 'fashion', image: '/camila/brand_deals/swatch_original.jpg', images: ['/camila/brand_deals/swatch_original.jpg'], characterSheet: '/camila/brand_deals/swatch_sheet.jpg' },
   ],
   physicalDesc: 'Latina, medium-length wavy brunette hair with side-swept bangs, brown eyes, olive skin tone, slim athletic build',
   generationHistory: [
@@ -404,11 +404,11 @@ try {
 // Step 3: Inject Camila's 11 photos into photo_studio_history (where the Photos tab actually reads from)
 try {
   const CAMILA_PHOTO_URLS = [
-    '/camila/photos/p1.png', '/camila/photos/p2.png', '/camila/photos/p3.png',
-    '/camila/photos/p4.png', '/camila/photos/p5.png', '/camila/photos/p6.png',
-    '/camila/photos/p7.png', '/camila/photos/p8.png', '/camila/photos/p9.png',
-    '/camila/photos/p10.png', '/camila/photos/p11.png',
-    '/camila/photos/p12.png', '/camila/photos/p13.png',
+    '/camila/photos/p1.jpg', '/camila/photos/p2.jpg', '/camila/photos/p3.jpg',
+    '/camila/photos/p4.jpg', '/camila/photos/p5.jpg', '/camila/photos/p6.jpg',
+    '/camila/photos/p7.jpg', '/camila/photos/p8.jpg', '/camila/photos/p9.jpg',
+    '/camila/photos/p10.jpg', '/camila/photos/p11.jpg',
+    '/camila/photos/p12.jpg', '/camila/photos/p13.jpg',
   ]
   const existing = JSON.parse(localStorage.getItem('photo_studio_history') || '[]')
   const existingUrls = new Set(existing.map(e => e.url))

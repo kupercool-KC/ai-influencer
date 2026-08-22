@@ -19,8 +19,8 @@
       "createdAt": 1715000001000,
       "mainImage": "/camila/main.jpg",
       "characterSheetImage": "/camila/sheet.jpg",
-      "closeUpImage1": "/camila/closeup1.png",
-      "closeUpImage2": "/camila/closeup2.png",
+      "closeUpImage1": "/camila/closeup1.jpg",
+      "closeUpImage2": "/camila/closeup2.jpg",
       "prompt": "Candid iPhone photo of @image1, wearing the complete outfit from @image2, reproducing all clothing, headwear, and accessories exactly. Match skin texture and facial detail from @image3 and @image4. Mid-action \u2014 mid-laugh, mid-sip, mid-step, or mid-reach \u2014 body fully committed to the action, expression caught at the apex. Eyes can be on lens (late-arrival) or completely off-axis. Hands engaged with the action, not posed. Expression: direct and serious \u2014 neutral mouth at rest, steady gaze into the lens, no smile. Composed and self-assured. Eyes directed off-axis \u2014 looking to the side or slightly above the camera, as if unaware of being photographed. A small front window table, street traffic soft and blurred outside the glass, a half-drunk flat white on the table beside her. Soft morning window light from one side, cool and directional. Eye-level, 24mm, handheld. 9:16, chest-up framing. Deep focus, no bokeh, photorealistic. No other people in frame.",
       "age": "22",
       "backstory": "Camilla got into fitness relatively young, but after realizing she wasn't passionate in personal training clients in the gym, she switched careers to teaching yoga classes.",
@@ -47,12 +47,12 @@
         {
           "id": "camila-wardrobe-sporty",
           "name": "sporty fit",
-          "image": "/camila/wardrobe/sporty_fit.png"
+          "image": "/camila/wardrobe/sporty_fit.jpg"
         },
         {
           "id": "camila-wardrobe-yoga",
           "name": "yoga fit",
-          "image": "/camila/wardrobe/yoga_fit.png"
+          "image": "/camila/wardrobe/yoga_fit.jpg"
         }
       ],
       "physicalDesc": "Latina, medium-length wavy brunette hair with side-swept bangs, brown eyes, olive skin tone, slim athletic build",
@@ -89,77 +89,77 @@
           "id": "camila-photo-1",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p1.png",
+          "url": "/camila/photos/p1.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-2",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p2.png",
+          "url": "/camila/photos/p2.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-3",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p3.png",
+          "url": "/camila/photos/p3.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-4",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p4.png",
+          "url": "/camila/photos/p4.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-5",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p5.png",
+          "url": "/camila/photos/p5.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-6",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p6.png",
+          "url": "/camila/photos/p6.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-7",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p7.png",
+          "url": "/camila/photos/p7.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-8",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p8.png",
+          "url": "/camila/photos/p8.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-9",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p9.png",
+          "url": "/camila/photos/p9.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-10",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p10.png",
+          "url": "/camila/photos/p10.jpg",
           "date": 1748131200000
         },
         {
           "id": "camila-photo-11",
           "type": "image",
           "label": "Photo",
-          "url": "/camila/photos/p11.png",
+          "url": "/camila/photos/p11.jpg",
           "date": 1748131200000
         }
       ],
@@ -169,11 +169,11 @@
           "id": "camila-deal-swatch",
           "brand": "swatch",
           "category": "fashion",
-          "image": "/camila/brand_deals/swatch_original.png",
+          "image": "/camila/brand_deals/swatch_original.jpg",
           "images": [
-            "/camila/brand_deals/swatch_original.png"
+            "/camila/brand_deals/swatch_original.jpg"
           ],
-          "characterSheet": "/camila/brand_deals/swatch_sheet.png"
+          "characterSheet": "/camila/brand_deals/swatch_sheet.jpg"
         }
       ]
     },
@@ -896,10 +896,10 @@
       "gender": "Male",
       "type": "Influencer",
       "createdAt": 1715000002000,
-      "mainImage": "/marcus/main.png",
-      "characterSheetImage": "/marcus/sheet.png",
-      "closeUpImage1": "/marcus/closeup1.png",
-      "closeUpImage2": "/marcus/closeup2.png",
+      "mainImage": "/marcus/main.jpg",
+      "characterSheetImage": "/marcus/sheet.jpg",
+      "closeUpImage1": "/marcus/closeup1.jpg",
+      "closeUpImage2": "/marcus/closeup2.jpg",
       "prompt": "",
       "age": "22",
       "backstory": "loves tech since he was young",
@@ -1893,7 +1893,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p1.png",
+      "url": "/camila/photos/p1.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1902,7 +1902,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p2.png",
+      "url": "/camila/photos/p2.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1911,7 +1911,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p3.png",
+      "url": "/camila/photos/p3.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1920,7 +1920,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p4.png",
+      "url": "/camila/photos/p4.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1929,7 +1929,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p5.png",
+      "url": "/camila/photos/p5.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1938,7 +1938,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p6.png",
+      "url": "/camila/photos/p6.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1947,7 +1947,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p7.png",
+      "url": "/camila/photos/p7.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1956,7 +1956,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p8.png",
+      "url": "/camila/photos/p8.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1965,7 +1965,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p9.png",
+      "url": "/camila/photos/p9.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1974,7 +1974,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p10.png",
+      "url": "/camila/photos/p10.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1983,7 +1983,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p11.png",
+      "url": "/camila/photos/p11.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -1992,7 +1992,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p12.png",
+      "url": "/camila/photos/p12.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -2001,7 +2001,7 @@
     },
     {
       "influencerId": "camila-template",
-      "url": "/camila/photos/p13.png",
+      "url": "/camila/photos/p13.jpg",
       "createdAt": 1748131200000,
       "location": "",
       "timeOfDay": "",
@@ -2016,7 +2016,7 @@
       "category": "drink",
       "image": "/prime/product.jpg",
       "createdAt": 1779074725415,
-      "characterSheet": "/prime/sheet.png"
+      "characterSheet": "/prime/sheet.jpg"
     }
   ],
   "inspiration_boards": [
