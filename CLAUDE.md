@@ -20,6 +20,46 @@ account (OAuth, PKCE).
   functions, and `vite.config.js` mirrors them as local dev proxies so
   the dev server behaves the same as production.
 
+## Engineering principles — read before writing code
+
+This project optimizes for token economy and surgical execution, not just
+working code. Sources: [Karpathy Skills](https://github.com/multica-ai/andrej-karpathy-skills),
+[Ponytail](https://github.com/DietrichGebert/ponytail),
+[rtk](https://github.com/rtk-ai/rtk).
+
+**Decision ladder — walk this before writing anything new** (Ponytail):
+1. Does this need to exist at all? (YAGNI — if the task doesn't require it, skip it)
+2. Does this codebase already solve it? (e.g. `generateVideo`/`generateNImages` in
+   `src/utils/higgsfieldGenerate.js` already take an `aspectRatio` param — 9:16 for
+   TikTok/Reels/Shorts, 16:9/1:1 for YouTube/feed. A future multi-platform export
+   feature calls these with different params; it does not get its own generator.)
+3. Does a built-in / stdlib / native platform feature solve it?
+4. Does an already-installed dependency solve it?
+5. Is the fix one line? Write one line.
+6. Otherwise, write the minimum that works — nothing speculative.
+
+This never trades away correctness, security, or data-loss handling — the ladder
+picks the *simplest sufficient* solution, not the cheapest one.
+
+**Think before coding** (Karpathy): state assumptions or ask, rather than guess,
+when a request is ambiguous. Read the relevant file(s) before proposing a plan.
+
+**Surgical changes** (Karpathy): touch only what the task requires. Don't reformat,
+refactor, or "clean up" adjacent working code — this applies with extra force to
+`Influencers.jsx` (see below). Remove code only when your own change made it
+dead, never as a drive-by.
+
+**Goal-driven verification** (Karpathy): before calling a task done, name the exact
+command/output that proves it — `npm run lint`, `npm run build`, or a specific
+in-browser check — and run it.
+
+**Token-aware command execution** (rtk, installed locally via `brew install rtk`):
+for high-volume commands during a session — `git status`/`git diff`, `npm run
+build`, `npm run lint`, test runs — prefer the `rtk` wrapper (e.g. `rtk git status`,
+`rtk npm run build`, `rtk lint`) when it's available, since it filters/dedupes
+output before it reaches context. Falls back silently to the raw command if `rtk`
+isn't installed on a given machine — never block work on its absence.
+
 ## Key files to know
 
 | Path | What it does |
