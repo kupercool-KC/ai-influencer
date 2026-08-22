@@ -1,0 +1,17 @@
+node_modules
+dist
+.DS_Store
+*.local
+.claude/
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Vercel project linkage
+.vercel
+
+# Logs
+*.log
+npm-debug.log*
