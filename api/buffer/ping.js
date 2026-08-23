@@ -14,7 +14,7 @@ export default async function handler(req, res) {
     if (!org) return res.status(200).json({ ok: true, organization: null, channels: [] })
 
     const channelData = await bufferQuery(`
-      query GetChannels($organizationId: String!) {
+      query GetChannels($organizationId: OrganizationId!) {
         channels(input: { organizationId: $organizationId }) {
           id name displayName service isQueuePaused
         }
