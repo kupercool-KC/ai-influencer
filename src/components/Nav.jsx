@@ -5,6 +5,7 @@ const links = [
   { to: '/influencers', label: 'Influencers' },
   { to: '/inspiration', label: 'Inspiration' },
   { to: '/brand-deals', label: 'Brand Deals' },
+  { to: '/expenses', label: 'Expenses' },
 ]
 
 export default function Nav() {
