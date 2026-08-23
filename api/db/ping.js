@@ -2,31 +2,16 @@
 // with the configured credentials. Visit /api/db/ping after setting the
 // SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY env vars to verify the connection.
 
-import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-
 export default async function handler(req, res) {
-  const debug = {
-    hasUrl: !!process.env.SUPABASE_URL,
-    hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-    urlPrefix: (process.env.SUPABASE_URL || '').slice(0, 20),
-  }
+  const url = process.env.SUPABASE_URL || ''
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
   try {
-    const { count, error } = await supabaseAdmin()
-      .from('influencers')
-      .select('*', { count: 'exact', head: true })
-
-    if (error) throw error
-    return res.status(200).json({ ok: true, influencerCount: count, debug })
-  } catch (e) {
-    return res.status(500).json({
-      ok: false,
-      error: e.message || String(e),
-      code: e.code,
-      details: e.details,
-      hint: e.hint,
-      status: e.status,
-      keys: Object.keys(e || {}),
-      debug,
+    const r = await fetch(`${url}/rest/v1/influencers?select=id&limit=1`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
     })
+    const body = await r.text()
+    return res.status(200).json({ httpStatus: r.status, body })
+  } catch (e) {
+    return res.status(500).json({ fetchThrew: true, message: e.message, name: e.name })
   }
 }
