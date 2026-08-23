@@ -21,7 +21,11 @@ export default async function handler(req, res) {
     return res.status(500).json({
       ok: false,
       error: e.message || String(e),
-      name: e.name,
+      code: e.code,
+      details: e.details,
+      hint: e.hint,
+      status: e.status,
+      keys: Object.keys(e || {}),
       debug,
     })
   }
