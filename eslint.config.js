@@ -5,7 +5,9 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist', 'node_modules'] },
+  // content_scout is a Python tool — its virtualenv vendors third-party JS that ESLint
+  // would otherwise lint and fail CI on.
+  { ignores: ['dist', 'node_modules', 'content_scout'] },
   js.configs.recommended,
   {
     files: ['**/*.{js,jsx}'],

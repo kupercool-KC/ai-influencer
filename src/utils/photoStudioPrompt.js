@@ -99,7 +99,29 @@ export const PROP_SUGGESTIONS = {
   'studio':      'e.g. no prop',
 }
 
-export const ASPECTS = ['9:16', '16:9']
+// Single source of truth — PhotoStudio.jsx imports this rather than keeping its own copy,
+// so the UI can never offer a ratio the prompt builder doesn't know how to frame.
+// 9:16 Reels/TikTok/Shorts · 4:5 Instagram feed · 1:1 square feed · 2:3 Pinterest · 16:9 landscape
+export const ASPECTS = ['9:16', '4:5', '1:1', '2:3', '16:9']
+
+// Framing per ratio — a square or 4:5 crop needs different subject distance than a
+// vertical one, so each ratio states its own framing instead of falling back to 9:16.
+const FRAMING = {
+  '9:16': { sitting: '9:16 vertical, 3/4 framing head to mid-thigh.', standing: '9:16 vertical, chest-up framing.' },
+  '4:5':  { sitting: '4:5 portrait, head to knee, subject centered.', standing: '4:5 portrait, head to waist — subject fills most of the frame.' },
+  '1:1':  { sitting: '1:1 square, waist-up, subject centered.',       standing: '1:1 square, chest-up, subject centered.' },
+  '2:3':  { sitting: '2:3 portrait, head to knee.',                   standing: '2:3 portrait, head to waist.' },
+  '16:9': { sitting: '16:9, waist-up.',                               standing: '16:9, waist-up framing.' },
+}
+
+// Anti-AI-aesthetic guard. buildDirectPrompt in systemPrompt.js carries an equivalent
+// block; without it here, Photo Studio output drifts toward the plastic "AI look".
+const REALISM_CONSTRAINTS =
+  'Real pore texture and skin imperfections visible on the face and all exposed skin — zero beauty retouching. ' +
+  'No AI aesthetic markers: no unnaturally bright irises, no perfectly symmetrical face, no plastic-smooth skin, ' +
+  'no uncanny glow, no waxy highlights. Natural asymmetry in the face and body. No visible brand logos. ' +
+  'No phone screen, social media UI, app overlay, status bar, or interface elements of any kind. ' +
+  'This is a raw photograph — no digital overlays, no framing devices, no watermarks.'
 
 export const OUTFIT_PRESETS_FEMALE = [
   { id: 'Casual',      label: 'Casual' },
@@ -533,9 +555,7 @@ export function buildPhotoStudioPrompt({ influencer, location, timeOfDay, pose, 
     : vibe === 'luxury' ? 'Eye-level, 28mm, clinical sharpness.'
     : 'Eye-level, 24mm, handheld.'
 
-  const framing = isSitting
-    ? (ratio === '16:9' ? '16:9, waist-up.' : '9:16, 3/4 framing head to mid-thigh.')
-    : (ratio === '16:9' ? '16:9, waist-up framing.' : '9:16, chest-up framing.')
+  const framing = (FRAMING[ratio] || FRAMING['9:16'])[isSitting ? 'sitting' : 'standing']
 
   // ── Hairstyle override — beats any reference image ───────────────
   const hairstyleDesc = hasHairstyleOverride
@@ -554,6 +574,7 @@ export function buildPhotoStudioPrompt({ influencer, location, timeOfDay, pose, 
     [locationLabel, scene, timeAtmo, light].filter(Boolean).join(' '),
     `${cameraFeel} ${framing}`,
     `Deep focus, no bokeh, photorealistic. ${peopleLine}`,
+    REALISM_CONSTRAINTS,
   ].filter(Boolean).join(' ')
 }
 

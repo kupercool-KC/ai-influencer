@@ -1180,6 +1180,16 @@ Key requirements:
 }
 
 // ── Direct prompt builder — all inputs drive output ───────────
+// Framing instruction per aspect ratio. Each ratio needs its own subject distance —
+// a square is not a vertical crop, and a 4:5 feed post is not a 9:16 Reel.
+const ASPECT_FRAMING = {
+  '9:16': 'Subject fills 60–70% of the 9:16 frame — tight crop, not a wide environmental shot.',
+  '4:5':  'Vertical 4:5 feed frame — subject fills 55–65% of the frame, slightly more environment visible than a 9:16 crop but still clearly subject-led.',
+  '1:1':  'Square 1:1 frame — subject centered and filling 55–65% of the frame, environment balanced evenly around them.',
+  '2:3':  'Vertical 2:3 frame — subject fills 55–65% of the frame, upright composition with headroom above and environment below.',
+  '16:9': 'Horizontal landscape frame — subject standing close to camera, filling at least half the frame height, environment visible on both sides. Not a distant wide shot — the subject must be close enough that face and outfit detail are fully legible. This is a wide candid, not a portrait crop rotated sideways.',
+}
+
 export function buildDirectPrompt(d, forcePose = null, options = {}, aspectRatio = '9:16') {
   const gender = d.gender || 'woman'
   const age = d.age ? `${d.age} year old` : 'mid-20s'
@@ -1284,7 +1294,7 @@ ${skinBlock}
 
 Use case: ${poseName}
 
-Constraints: no people in the background. No visible brand logos on any item. ${aspectRatio === '16:9' ? 'Horizontal landscape frame — subject standing close to camera, filling at least half the frame height, environment visible on both sides. Not a distant wide shot — the subject must be close enough that face and outfit detail are fully legible. This is a wide candid, not a portrait crop rotated sideways.' : 'Subject fills 60–70% of the 9:16 frame — tight crop, not a wide environmental shot.'} No background blur or bokeh. Real pore texture and skin imperfections visible on the face and all exposed body skin — zero beauty retouching. No AI aesthetic markers: no unnaturally bright irises, no perfectly symmetrical face, no plastic-smooth skin, no uncanny glow. No phone screen, no social media UI, no app overlay, no notification bar, no status bar, no interface elements of any kind visible anywhere in the image. This is a raw photograph — no digital overlays, no framing devices, no UI chrome. ${isEditorial ? 'Editorial vibe applies to the styling only — the photo itself is a raw iPhone snapshot.' : ''}`
+Constraints: no people in the background. No visible brand logos on any item. ${ASPECT_FRAMING[aspectRatio] || ASPECT_FRAMING['9:16']} No background blur or bokeh. Real pore texture and skin imperfections visible on the face and all exposed body skin — zero beauty retouching. No AI aesthetic markers: no unnaturally bright irises, no perfectly symmetrical face, no plastic-smooth skin, no uncanny glow. No phone screen, no social media UI, no app overlay, no notification bar, no status bar, no interface elements of any kind visible anywhere in the image. This is a raw photograph — no digital overlays, no framing devices, no UI chrome. ${isEditorial ? 'Editorial vibe applies to the styling only — the photo itself is a raw iPhone snapshot.' : ''}`
 }
 
 // ── Three distinct variation prompts — different poses per card ─

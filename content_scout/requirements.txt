@@ -1,0 +1,14 @@
+apify-client>=1.7,<2
+google-api-python-client>=2.140,<3
+yt-dlp>=2026.8.19
+faster-whisper>=1.0
+paddlepaddle>=2.6
+paddleocr>=3.0  # code targets the 3.x .predict() API, not the old 2.x .ocr() API
+opencv-python-headless>=4.9
+scikit-image>=0.23
+numpy>=1.26
+Pillow>=10.3
+python-dotenv>=1.0
+Jinja2>=3.1
+requests>=2.32
+python-dateutil>=2.9
