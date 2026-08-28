@@ -6,7 +6,7 @@ import { buildCharSheetPrompt, buildCharSheetPromptWithClaude } from '../utils/c
 import { useInfluencers, useBrandDeals } from '../store'
 import WardrobeDrawer from '../components/WardrobeDrawer'
 import {
-  LOCATIONS, TIMES, EXPRESSIONS, PROP_SUGGESTIONS,
+  LOCATIONS, TIMES, EXPRESSIONS, PROP_SUGGESTIONS, ASPECTS,
   getPoses, buildPhotoStudioPrompt, randomParams, getOutfitPresets,
 } from '../utils/photoStudioPrompt'
 import LOC_PREVIEWS from '../utils/locationPreviews'
@@ -52,8 +52,8 @@ const HISTORY_KEY = 'photo_studio_history'
 const MAX_HISTORY = 500
 const GEN_DURATION_MS = 90000
 
-// Only portrait + square for Instagram
-const ASPECTS = ['9:16', '1:1']
+// ASPECTS comes from photoStudioPrompt — a local copy drifted out of sync and left
+// 1:1 selections being framed as 9:16.
 
 // Location gradient backgrounds — evokes the scene atmosphere
 const LOC_VISUAL = {
