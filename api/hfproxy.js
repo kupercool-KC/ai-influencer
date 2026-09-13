@@ -50,10 +50,12 @@ export default async function handler(req) {
     })
   }
 
-  // Forward all request headers, drop 'host' so upstream doesn't reject it
+  // Forward all request headers, drop ones that identify this proxy rather
+  // than the end client — Higgsfield's API 403s with "Forbidden origin" when
+  // it sees our localhost/vercel Origin or Referer.
   const forward = new Headers()
   for (const [k, v] of req.headers.entries()) {
-    if (k === 'host') continue
+    if (k === 'host' || k === 'origin' || k === 'referer') continue
     forward.set(k, v)
   }
 

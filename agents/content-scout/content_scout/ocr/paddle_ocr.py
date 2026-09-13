@@ -17,8 +17,7 @@ def _get_ocr(lang: str = "en"):
     if lang not in _ocr_model_cache:
         from paddleocr import PaddleOCR
 
-        # PaddleOCR 3.x renamed use_angle_cls -> use_textline_orientation and dropped show_log.
-        _ocr_model_cache[lang] = PaddleOCR(use_textline_orientation=True, lang=lang)
+        _ocr_model_cache[lang] = PaddleOCR(use_angle_cls=True, lang=lang, show_log=False)
     return _ocr_model_cache[lang]
 
 
@@ -28,19 +27,13 @@ def _frame_index(path: Path) -> int:
 
 
 def _frame_text(ocr, path: Path) -> tuple[str, float]:
-    # PaddleOCR 3.x: .predict() returns a list of OCRResult dicts with parallel
-    # rec_texts/rec_scores/rec_boxes arrays (rec_boxes: [x1, y1, x2, y2] per line),
-    # replacing the old .ocr()'s [[box, (text, conf)], ...] shape.
-    result = ocr.predict(str(path))
-    if not result or not result[0].get("rec_texts"):
+    result = ocr.ocr(str(path), cls=True)
+    if not result or not result[0]:
         return "", 0.0
-    r = result[0]
-    lines = sorted(
-        zip(r["rec_texts"], r["rec_scores"], r["rec_boxes"]),
-        key=lambda item: (item[2][1], item[2][0]),  # top-to-bottom, then left-to-right
-    )
-    texts = [text.strip() for text, _, _ in lines if text.strip()]
-    confidences = [score for _, score, _ in lines]
+    # Sort boxes into rough reading order: top-to-bottom, then left-to-right.
+    lines = sorted(result[0], key=lambda box: (box[0][0][1], box[0][0][0]))
+    texts = [line[1][0].strip() for line in lines if line[1][0].strip()]
+    confidences = [line[1][1] for line in lines]
     text = " ".join(texts)
     avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
     return text, avg_conf

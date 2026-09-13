@@ -15,3 +15,8 @@ dist
 # Logs
 *.log
 npm-debug.log*
+.env*
+docs/personas/*/references/
+agents/content-scout/data/
+agents/content-scout/.venv/
+/content_scout/

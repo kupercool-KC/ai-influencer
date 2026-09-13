@@ -32,11 +32,7 @@ def _download_via_ytdlp(page_url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     ydl_opts = {
         "outtmpl": str(dest.with_suffix("")) + ".%(ext)s",
-        # "mp4/best" alone can match a video-only stream on platforms (YouTube included)
-        # that serve audio as a separate DASH track — explicitly ask for both and let
-        # yt-dlp mux them via ffmpeg so the output always has an audio stream.
-        "format": "bestvideo+bestaudio/best",
-        "merge_output_format": "mp4",
+        "format": "mp4/best",
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,

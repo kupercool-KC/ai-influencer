@@ -179,40 +179,6 @@ const KAYLA_SEED = {
   ],
 }
 
-const MARCUS_SEED = {
-  id: 'marcus-template',
-  name: 'Marcus',
-  gender: 'Male',
-  type: 'Influencer',
-  createdAt: 1715000002000,
-  mainImage: '/marcus/main.jpg',
-  characterSheetImage: '/marcus/sheet.jpg',
-  closeUpImage1: '/marcus/closeup1.jpg',
-  closeUpImage2: '/marcus/closeup2.jpg',
-  prompt: '',
-  age: '22',
-  backstory: 'loves tech since he was young',
-  introExtrovert: 60,
-  niche: 'Tech',
-  nicheCustom: '',
-  audience: '',
-  hobbies: '',
-  clothingStyle: 'Streetwear',
-  dreamBrands: '',
-  voice: '',
-  contentPillars: [],
-  palette: ['#6366F1', '#A5B4FC', '#4F46E5', '#1E1B4B'],
-  videoUrls: [],
-  scripts: [],
-  homeImages: [],
-  brandDealImages: [],
-  wardrobeSlots: [],
-  physicalDesc: 'Latino, short black hair, brown eyes, olive skin tone, average build',
-  generationHistory: [
-    { id: 'marcus-video-1', type: 'video', label: 'Video', url: '/marcus/video1.mp4', date: 1748248415000 },
-  ],
-}
-
 const CAMILA_SEED = {
   id: 'camila-template',
   name: 'Camila',
@@ -284,7 +250,6 @@ try {
       const ki = list.findIndex(i => i.id === 'kayla-template')
       list.splice(ki + 1, 0, CAMILA_SEED)
     }
-    if (!list.some(i => i.id === 'marcus-template')) list.push(MARCUS_SEED)
     for (const inf of list) writeInfluencer(inf)
     writeIds(list.map(i => i.id))
   } else {
@@ -328,35 +293,6 @@ try {
             wardrobeSlots: [...(existing.wardrobeSlots || []), ...missingWardrobe],
             brandDeals: [...(existing.brandDeals || []), ...missingDeals],
             generationHistory: [...missingVideos, ...(existing.generationHistory || [])],
-          })
-        }
-      }
-    }
-    if (!ids.includes('marcus-template')) {
-      writeInfluencer(MARCUS_SEED)
-      writeIds([...(readIds() || ids), 'marcus-template'])
-    } else {
-      // Marcus exists but may be missing data from the failed migration — patch it back in
-      const existing = readInfluencer('marcus-template')
-      if (!existing) {
-        writeInfluencer(MARCUS_SEED)
-      } else {
-        // Patch back seed images/video if they were lost in the failed migration
-        const needsPatch =
-          !existing.mainImage || existing.mainImage.startsWith('data:') ||
-          !existing.characterSheetImage || existing.characterSheetImage.startsWith('data:') ||
-          !(existing.generationHistory || []).some(e => e.type === 'video')
-        if (needsPatch) {
-          const existingVideoHistory = (existing.generationHistory || []).filter(e => e.type === 'video')
-          const seedVideo = MARCUS_SEED.generationHistory.filter(e => e.type === 'video')
-          const mergedHistory = existingVideoHistory.length ? existing.generationHistory : [...seedVideo, ...(existing.generationHistory || [])]
-          writeInfluencer({
-            ...existing,
-            mainImage: MARCUS_SEED.mainImage,
-            characterSheetImage: MARCUS_SEED.characterSheetImage,
-            closeUpImage1: MARCUS_SEED.closeUpImage1,
-            closeUpImage2: MARCUS_SEED.closeUpImage2,
-            generationHistory: mergedHistory,
           })
         }
       }
@@ -455,7 +391,7 @@ try {
 const TEMPLATE_IDS = new Set(['kayla-template', 'camila-template', 'marcus-template'])
 
 export function StoreProvider({ children }) {
-  const influencerStore = useInfluencerStore([KAYLA_SEED, CAMILA_SEED, MARCUS_SEED])
+  const influencerStore = useInfluencerStore([KAYLA_SEED, CAMILA_SEED])
   const inspirationState = useLocalStorage('inspiration_boards', [])
   const brandDealsState  = useLocalStorage('brand_deals', [])
   const [, setInspirationBoards] = inspirationState
