@@ -65,10 +65,23 @@ jobs:
 
       - name: Generate
         id: gen
+        env:
+          # Untrusted workflow_dispatch inputs go through env vars, never
+          # directly into the run: script — see buffer-dispatch.yml for why
+          # (GitHub Actions script injection: ${{ inputs.* }} substitutes as
+          # raw text before bash runs, so unescaped content can break out of
+          # quotes and execute arbitrary commands with this job's secrets in
+          # scope). $ENV_VAR expansion at shell runtime is safe regardless.
+          IN_MODEL: ${{ inputs.model }}
+          IN_PROMPT: ${{ inputs.prompt }}
+          IN_IMAGE_REFERENCES: ${{ inputs.image_references }}
+          IN_ASPECT_RATIO: ${{ inputs.aspect_ratio }}
+          IN_QUALITY: ${{ inputs.quality }}
+          IN_RESOLUTION: ${{ inputs.resolution }}
         run: |
           set -e
           FLAGS=()
-          IFS=',' read -ra REFS <<< "${{ inputs.image_references }}"
+          IFS=',' read -ra REFS <<< "$IN_IMAGE_REFERENCES"
           for ref in "${REFS[@]}"; do
             ref_trimmed=$(echo "$ref" | xargs)
             if [ -n "$ref_trimmed" ]; then
@@ -76,12 +89,12 @@ jobs:
             fi
           done
 
-          URL=$(higgsfield generate create "${{ inputs.model }}" \
-            --prompt "${{ inputs.prompt }}" \
+          URL=$(higgsfield generate create "$IN_MODEL" \
+            --prompt "$IN_PROMPT" \
             "${FLAGS[@]}" \
-            --aspect_ratio "${{ inputs.aspect_ratio }}" \
-            --quality "${{ inputs.quality }}" \
-            --resolution "${{ inputs.resolution }}" \
+            --aspect_ratio "$IN_ASPECT_RATIO" \
+            --quality "$IN_QUALITY" \
+            --resolution "$IN_RESOLUTION" \
             --wait --wait-timeout 5m)
 
           echo "url=$URL" >> "$GITHUB_OUTPUT"
@@ -92,16 +105,30 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # See the Generate step above for why untrusted inputs are passed
+          # as env vars instead of interpolated into the script directly.
+          IN_INFLUENCER_ID: ${{ inputs.influencer_id }}
+          IN_IMAGE_SLOT: ${{ inputs.image_slot }}
+          IN_MODEL: ${{ inputs.model }}
+          IN_ASPECT_RATIO: ${{ inputs.aspect_ratio }}
+          IN_PROMPT: ${{ inputs.prompt }}
+          GEN_URL: ${{ steps.gen.outputs.url }}
         run: |
           set -e
           if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets not set — skipping DB write. Generated URL: ${{ steps.gen.outputs.url }}"
+            echo "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets not set — skipping DB write. Generated URL: $GEN_URL"
             exit 0
           fi
 
           # media_assets is the source of truth for history — mark any prior
           # asset in this slot as no longer current, then insert the new one.
-          curl -s -X PATCH "$SUPABASE_URL/rest/v1/media_assets?influencer_id=eq.${{ inputs.influencer_id }}&slot=eq.${{ inputs.image_slot }}&is_current=eq.true" \
+          # influencer_id/slot go into the URL as PostgREST filters, so they're
+          # URL-encoded via jq/curl --data-urlencode rather than interpolated
+          # raw (avoids both shell and query-string injection).
+          ENC_INFLUENCER_ID=$(jq -rn --arg v "$IN_INFLUENCER_ID" '$v|@uri')
+          ENC_IMAGE_SLOT=$(jq -rn --arg v "$IN_IMAGE_SLOT" '$v|@uri')
+
+          curl -s -X PATCH "$SUPABASE_URL/rest/v1/media_assets?influencer_id=eq.$ENC_INFLUENCER_ID&slot=eq.$ENC_IMAGE_SLOT&is_current=eq.true" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" -H "Prefer: return=minimal" \
             -d '{"is_current": false}'
@@ -109,26 +136,26 @@ jobs:
           curl -s -X POST "$SUPABASE_URL/rest/v1/media_assets" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" -H "Prefer: return=minimal" \
-            -d "$(jq -n --arg iid "${{ inputs.influencer_id }}" --arg slot "${{ inputs.image_slot }}" \
-                  --arg url "${{ steps.gen.outputs.url }}" --arg model "${{ inputs.model }}" \
-                  --arg ar "${{ inputs.aspect_ratio }}" --arg prompt "${{ inputs.prompt }}" \
+            -d "$(jq -n --arg iid "$IN_INFLUENCER_ID" --arg slot "$IN_IMAGE_SLOT" \
+                  --arg url "$GEN_URL" --arg model "$IN_MODEL" \
+                  --arg ar "$IN_ASPECT_RATIO" --arg prompt "$IN_PROMPT" \
                   '{influencer_id:$iid, slot:$slot, type:"image", url:$url, model:$model, aspect_ratio:$ar, prompt:$prompt, source:"cli", is_current:true, label:$slot}')"
 
           # Also keep the influencer's own profile row in sync, since the app
           # reads mainImage/characterSheetImage/etc directly off it.
-          ROW=$(curl -s "$SUPABASE_URL/rest/v1/influencers?id=eq.${{ inputs.influencer_id }}&select=*" \
+          ROW=$(curl -s "$SUPABASE_URL/rest/v1/influencers?id=eq.$ENC_INFLUENCER_ID&select=*" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
 
-          echo "$ROW" | jq --arg slot "${{ inputs.image_slot }}" --arg url "${{ steps.gen.outputs.url }}" \
+          echo "$ROW" | jq --arg slot "$IN_IMAGE_SLOT" --arg url "$GEN_URL" \
             '.[0] as $r | $r.data + {($slot): $url} | {id: $r.id, name: $r.name, gender: $r.gender, niche: $r.niche, data: .}' \
             > /tmp/payload.json
 
-          curl -s -X PATCH "$SUPABASE_URL/rest/v1/influencers?id=eq.${{ inputs.influencer_id }}" \
+          curl -s -X PATCH "$SUPABASE_URL/rest/v1/influencers?id=eq.$ENC_INFLUENCER_ID" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Content-Type: application/json" \
             -H "Prefer: return=minimal" \
             -d @/tmp/payload.json
 
-          echo "Wrote ${{ inputs.image_slot }} = ${{ steps.gen.outputs.url }} for influencer ${{ inputs.influencer_id }} (media_assets + influencers)"
+          echo "Wrote $IN_IMAGE_SLOT = $GEN_URL for influencer $IN_INFLUENCER_ID (media_assets + influencers)"

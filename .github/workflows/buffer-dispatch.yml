@@ -53,11 +53,24 @@ jobs:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Untrusted workflow_dispatch inputs go through env vars, never
+          # directly into the run: script — GitHub substitutes ${{ inputs.* }}
+          # as raw text before bash ever sees it, so a caption/prompt/etc
+          # containing shell metacharacters could otherwise break out and run
+          # arbitrary commands with these secrets in scope (GitHub Actions
+          # "script injection"). $ENV_VAR expansion happens at shell runtime
+          # instead, so this is safe regardless of content.
+          IN_CHANNEL_ID: ${{ inputs.channel_id }}
+          IN_IMAGE_URL: ${{ inputs.image_url }}
+          IN_CAPTION: ${{ inputs.caption }}
+          IN_PLATFORM: ${{ inputs.platform }}
+          IN_INFLUENCER_ID: ${{ inputs.influencer_id }}
+          IN_MEDIA_ASSET_ID: ${{ inputs.media_asset_id }}
         run: |
           node create-draft.mjs \
-            --channel "${{ inputs.channel_id }}" \
-            --image "${{ inputs.image_url }}" \
-            --text "${{ inputs.caption }}" \
-            --platform "${{ inputs.platform }}" \
-            --influencer "${{ inputs.influencer_id }}" \
-            --media-asset "${{ inputs.media_asset_id }}"
+            --channel "$IN_CHANNEL_ID" \
+            --image "$IN_IMAGE_URL" \
+            --text "$IN_CAPTION" \
+            --platform "$IN_PLATFORM" \
+            --influencer "$IN_INFLUENCER_ID" \
+            --media-asset "$IN_MEDIA_ASSET_ID"
