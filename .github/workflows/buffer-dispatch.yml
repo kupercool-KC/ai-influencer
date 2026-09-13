@@ -1,0 +1,44 @@
+name: Buffer dispatch (draft)
+
+# Creates a DRAFT post in Buffer for one channel — never auto-publishes. This is
+# the deliberate current setting: content still gets reviewed and published by
+# hand in Buffer while the manual-upload phase is in effect. Flip
+# agents/dispatch/create-draft.mjs's saveToDraft to false (and add scheduling)
+# when ready to go fully autonomous.
+#
+# Needs the BUFFER_API_KEY repo secret (same value as Vercel).
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel_id:
+        description: "Buffer channel id (get it from /api/buffer/ping on the deployed app)"
+        required: true
+      image_url:
+        description: "Public URL of the image to post"
+        required: true
+      caption:
+        description: "Post caption/text"
+        required: true
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agents/dispatch
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Create Buffer draft
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+        run: |
+          node create-draft.mjs \
+            --channel "${{ inputs.channel_id }}" \
+            --image "${{ inputs.image_url }}" \
+            --text "${{ inputs.caption }}"

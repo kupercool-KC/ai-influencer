@@ -1,0 +1,65 @@
+name: Content scout
+
+# Runs the content-scout research pipeline (agents/content-scout/) — discovers and
+# ranks competing content on TikTok/Instagram/YouTube for a given niche, so its
+# findings can inform what Ivy (or any persona) generates next.
+#
+# Needs repo secrets: APIFY_TOKEN, YOUTUBE_API_KEY (same values as
+# agents/content-scout/.env.example).
+
+on:
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Keyword/hashtag/niche to search, e.g. 'coastal wellness yoga'"
+        required: true
+      platforms:
+        description: "Comma-separated: tiktok,instagram,youtube"
+        default: "tiktok,instagram,youtube"
+        required: true
+      per_platform_limit:
+        description: "Max items per platform"
+        default: "15"
+        required: true
+      since_days:
+        description: "Only consider content from the last N days"
+        default: "90"
+        required: true
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agents/content-scout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run content scout
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+        run: |
+          python -m content_scout.cli run \
+            --niche "${{ inputs.niche }}" \
+            --platforms "${{ inputs.platforms }}" \
+            --per-platform-limit "${{ inputs.per_platform_limit }}" \
+            --since-days "${{ inputs.since_days }}" \
+            2>&1 | tee run.log
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: content-scout-report-${{ github.run_id }}
+          path: |
+            agents/content-scout/data/**/report*
+            agents/content-scout/run.log
+          if-no-files-found: warn
+          retention-days: 30

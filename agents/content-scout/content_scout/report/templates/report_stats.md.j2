@@ -1,0 +1,41 @@
+# Content Scout Report — {{ run_id }}
+
+**Niche:** {{ niche }} · **Platforms:** {{ platforms | join(', ') }} · **Videos analyzed:** {{ stats.total_videos }}
+**Generated:** {{ generated_at }}
+
+## Top hashtags across all platforms
+
+{% for tag, count in stats.overall_hashtags[:15] -%}
+- #{{ tag }} ({{ count }})
+{% endfor %}
+
+{% for platform, p in stats.platforms.items() %}
+## {{ platform | capitalize }} ({{ p.count }} videos)
+
+### Top-ranked videos
+
+| Rank | Score | Views | Engagement rate | Hook (first words) | Link |
+|---|---|---|---|---|---|
+{% for row in p.top_ranked -%}
+| {{ row.rank }} | {{ row.composite_score }} | {{ row.views }} | {{ row.engagement_rate }} | {{ row.hook }}{% if row.hook|length == 80 %}…{% endif %} | {{ row.url }} |
+{% endfor %}
+
+### Top hashtags on {{ platform }}
+
+{% for tag, count in p.hashtags[:10] -%}
+- #{{ tag }} ({{ count }})
+{% endfor %}
+
+### Posting pattern
+
+- By day: {% for day, count in p.posting_pattern.by_day %}{{ day }} ({{ count }}){{ ", " if not loop.last }}{% endfor %}
+- By hour (UTC): {% for hour, count in p.posting_pattern.by_hour %}{{ hour }}:00 ({{ count }}){{ ", " if not loop.last }}{% endfor %}
+- Average duration: {{ p.posting_pattern.avg_duration_sec }}s
+
+### Hook excerpts (top-ranked videos, first 3 seconds)
+
+{% for h in p.hook_excerpts -%}
+- **[{{ h.composite_score }}]** Spoken: "{{ h.spoken_hook }}" · On-screen: "{{ h.onscreen_hook }}" — {{ h.url }}
+{% endfor %}
+
+{% endfor %}
