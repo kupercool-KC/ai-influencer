@@ -10,11 +10,12 @@
 //     this coding session — it has no memory of anything done outside this
 //     bot's own conversation history.
 //
-// Security: only responds to TELEGRAM_OWNER_CHAT_ID, and only accepts
-// requests carrying the secret token Telegram was configured to send
-// (X-Telegram-Bot-Api-Secret-Token) — anyone else's message is silently
-// ignored, since this bot can spend real money (Higgsfield credits, API
-// calls, GitHub Actions minutes).
+// Security: only responds to chat IDs listed in TELEGRAM_ALLOWED_CHAT_IDS
+// (comma-separated — TELEGRAM_OWNER_CHAT_ID alone still works for a single
+// user), and only accepts requests carrying the secret token Telegram was
+// configured to send (X-Telegram-Bot-Api-Secret-Token) — anyone else's
+// message is silently ignored, since this bot can spend real money
+// (Higgsfield credits, API calls, GitHub Actions minutes).
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, mainMenuKeyboard } from '../../lib/telegramClient.js'
@@ -69,6 +70,13 @@ function parsePipes(text) {
   return text.split('|').map(s => s.trim()).filter(Boolean)
 }
 
+function allowedChatIds() {
+  const list = [process.env.TELEGRAM_OWNER_CHAT_ID, ...(process.env.TELEGRAM_ALLOWED_CHAT_IDS || '').split(',')]
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+  return new Set(list)
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method not allowed')
 
@@ -77,14 +85,14 @@ export default async function handler(req, res) {
     return res.status(401).send('Unauthorized')
   }
 
-  const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID
+  const allowed = allowedChatIds()
   const update = req.body || {}
 
   try {
     if (update.callback_query) {
       const cq = update.callback_query
       const chatId = cq.message.chat.id
-      if (ownerChatId && String(chatId) !== String(ownerChatId)) return res.status(200).end()
+      if (allowed.size && !allowed.has(String(chatId))) return res.status(200).end()
 
       const key = cq.data.replace('menu:', '')
       await answerCallbackQuery(cq.id, '')
@@ -96,8 +104,8 @@ export default async function handler(req, res) {
     if (!msg || !msg.text) return res.status(200).end()
     const chatId = msg.chat.id
 
-    if (ownerChatId && String(chatId) !== String(ownerChatId)) {
-      // Not the owner — never trigger anything, never spend money, don't even reply.
+    if (allowed.size && !allowed.has(String(chatId))) {
+      // Not an allowed user — never trigger anything, never spend money, don't even reply.
       return res.status(200).end()
     }
 
@@ -141,7 +149,7 @@ export default async function handler(req, res) {
     await sendMessage(chatId, reply)
     return res.status(200).end()
   } catch (e) {
-    try { await sendMessage(update.message?.chat?.id || ownerChatId, `Error: ${e.message}`) } catch { /* best effort */ }
+    try { await sendMessage(update.message?.chat?.id || process.env.TELEGRAM_OWNER_CHAT_ID, `Error: ${e.message}`) } catch { /* best effort */ }
     return res.status(200).end()
   }
 }
