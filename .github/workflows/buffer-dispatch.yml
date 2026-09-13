@@ -6,7 +6,9 @@ name: Buffer dispatch (draft)
 # agents/dispatch/create-draft.mjs's saveToDraft to false (and add scheduling)
 # when ready to go fully autonomous.
 #
-# Needs the BUFFER_API_KEY repo secret (same value as Vercel).
+# Needs the BUFFER_API_KEY repo secret (same value as Vercel). SUPABASE_URL +
+# SUPABASE_SERVICE_ROLE_KEY are optional — when set, the draft is also
+# recorded as a row in scheduled_dispatches.
 
 on:
   workflow_dispatch:
@@ -20,6 +22,18 @@ on:
       caption:
         description: "Post caption/text"
         required: true
+      platform:
+        description: "tiktok | instagram | youtube | facebook (for the scheduled_dispatches record)"
+        required: false
+        default: ""
+      influencer_id:
+        description: "Influencer this post is for (for the scheduled_dispatches record)"
+        required: false
+        default: ""
+      media_asset_id:
+        description: "media_assets row id this image came from, if known"
+        required: false
+        default: ""
 
 jobs:
   draft:
@@ -37,8 +51,13 @@ jobs:
       - name: Create Buffer draft
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           node create-draft.mjs \
             --channel "${{ inputs.channel_id }}" \
             --image "${{ inputs.image_url }}" \
-            --text "${{ inputs.caption }}"
+            --text "${{ inputs.caption }}" \
+            --platform "${{ inputs.platform }}" \
+            --influencer "${{ inputs.influencer_id }}" \
+            --media-asset "${{ inputs.media_asset_id }}"
