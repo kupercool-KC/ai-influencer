@@ -108,6 +108,15 @@ export default defineConfig({
         target: 'https://mcp.higgsfield.ai',
         changeOrigin: true,
         rewrite: path => path.replace(/^\/api\/hf/, ''),
+        // Higgsfield's API 403s with "Forbidden origin" if it sees our
+        // localhost Origin/Referer — strip them, same as the production
+        // edge function (api/hf/[...path].js) already does.
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.removeHeader('origin')
+            proxyReq.removeHeader('referer')
+          })
+        },
       },
     },
   },

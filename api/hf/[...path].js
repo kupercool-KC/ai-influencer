@@ -33,10 +33,12 @@ export default async function handler(req) {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
 
-  // Forward all request headers, drop 'host' so upstream doesn't reject it
+  // Forward all request headers, drop ones the upstream rejects or that
+  // leak this proxy's identity ('host', 'origin', 'referer' — Higgsfield's
+  // API 403s with "Forbidden origin" when it sees our localhost/vercel origin)
   const forward = new Headers()
   for (const [k, v] of req.headers.entries()) {
-    if (k === 'host') continue
+    if (k === 'host' || k === 'origin' || k === 'referer') continue
     forward.set(k, v)
   }
 

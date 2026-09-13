@@ -1,0 +1,117 @@
+name: Higgsfield generate
+
+# Runs the official Higgsfield CLI in a durable, session-independent environment.
+# Auth comes from HIGGSFIELD_CREDENTIALS_B64 (a repo secret: base64 of
+# ~/.config/higgsfield/credentials.json from a machine where `higgsfield auth login`
+# was already completed) — never from a browser OAuth flow, which Higgsfield's MCP
+# endpoint rejects for third-party web apps ("Forbidden origin").
+#
+# Optionally writes the result straight into the app's Supabase `influencers` row
+# when influencer_id + image_slot are given (requires the SUPABASE_URL and
+# SUPABASE_SERVICE_ROLE_KEY repo secrets — same values already in Vercel).
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Higgsfield model id"
+        default: gpt_image_2
+        required: true
+      prompt:
+        description: "Generation prompt"
+        required: true
+      image_references:
+        description: "Comma-separated repo-relative paths to reference images"
+        required: false
+        default: ""
+      aspect_ratio:
+        description: "Aspect ratio (e.g. 9:16, 16:9, 4:5, 2:3, 1:1)"
+        default: "9:16"
+        required: true
+      quality:
+        description: "low | medium | high"
+        default: high
+        required: true
+      resolution:
+        description: "1k | 2k | 4k"
+        default: 2k
+        required: true
+      influencer_id:
+        description: "If set, write the result URL into this influencer's Supabase row"
+        required: false
+        default: ""
+      image_slot:
+        description: "mainImage | characterSheetImage | closeUpImage1 | closeUpImage2"
+        required: false
+        default: ""
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    env:
+      HIGGSFIELD_WORKSPACE_ID: "464e34d3-f7ad-4da0-a24a-c00a94910a9b"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Higgsfield CLI
+        run: npm i -g @higgsfield/cli
+
+      - name: Restore Higgsfield credentials
+        run: |
+          mkdir -p ~/.config/higgsfield
+          echo "${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}" | base64 -d > ~/.config/higgsfield/credentials.json
+          chmod 600 ~/.config/higgsfield/credentials.json
+          higgsfield workspace set "$HIGGSFIELD_WORKSPACE_ID"
+
+      - name: Generate
+        id: gen
+        run: |
+          set -e
+          FLAGS=()
+          IFS=',' read -ra REFS <<< "${{ inputs.image_references }}"
+          for ref in "${REFS[@]}"; do
+            ref_trimmed=$(echo "$ref" | xargs)
+            if [ -n "$ref_trimmed" ]; then
+              FLAGS+=(--image-references "$ref_trimmed")
+            fi
+          done
+
+          URL=$(higgsfield generate create "${{ inputs.model }}" \
+            --prompt "${{ inputs.prompt }}" \
+            "${FLAGS[@]}" \
+            --aspect_ratio "${{ inputs.aspect_ratio }}" \
+            --quality "${{ inputs.quality }}" \
+            --resolution "${{ inputs.resolution }}" \
+            --wait --wait-timeout 5m)
+
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Generated: $URL"
+
+      - name: Write result into Supabase (optional)
+        if: ${{ inputs.influencer_id != '' && inputs.image_slot != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -e
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY secrets not set — skipping DB write. Generated URL: ${{ steps.gen.outputs.url }}"
+            exit 0
+          fi
+
+          ROW=$(curl -s "$SUPABASE_URL/rest/v1/influencers?id=eq.${{ inputs.influencer_id }}&select=*" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+
+          echo "$ROW" | jq --arg slot "${{ inputs.image_slot }}" --arg url "${{ steps.gen.outputs.url }}" \
+            '.[0] as $r | $r.data + {($slot): $url} | {id: $r.id, name: $r.name, gender: $r.gender, niche: $r.niche, data: .}' \
+            > /tmp/payload.json
+
+          curl -s -X PATCH "$SUPABASE_URL/rest/v1/influencers?id=eq.${{ inputs.influencer_id }}" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "Prefer: return=minimal" \
+            -d @/tmp/payload.json
+
+          echo "Wrote ${{ inputs.image_slot }} = ${{ steps.gen.outputs.url }} for influencer ${{ inputs.influencer_id }}"
