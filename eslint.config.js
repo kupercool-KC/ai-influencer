@@ -5,12 +5,25 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  // content_scout is a Python tool — its virtualenv vendors third-party JS that ESLint
-  // would otherwise lint and fail CI on.
-  { ignores: ['dist', 'node_modules', 'content_scout'] },
+  // agents/content-scout is a Python tool — its virtualenv (when present locally)
+  // vendors third-party JS that ESLint would otherwise lint and fail CI on.
+  { ignores: ['dist', 'node_modules', 'agents/content-scout'] },
   js.configs.recommended,
   {
+    // Plain Node scripts (agent/CI tooling) — no browser globals, no React.
+    files: ['agents/**/*.{js,mjs}'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module',
+      globals: { ...globals.node },
+    },
+    rules: {
+      'no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+    },
+  },
+  {
     files: ['**/*.{js,jsx}'],
+    ignores: ['agents/**'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
