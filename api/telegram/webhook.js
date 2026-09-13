@@ -22,7 +22,7 @@
 // (Higgsfield credits, API calls, GitHub Actions minutes).
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-import { sendMessage, answerCallbackQuery, tabsKeyboard, TAB_LABELS } from '../../lib/telegramClient.js'
+import { sendMessage, answerCallbackQuery, tabsKeyboard, TAB_LABELS, withTyping } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool } from '../../lib/telegramTools.js'
 
@@ -284,9 +284,11 @@ export default async function handler(req, res) {
       return res.status(200).end()
     }
 
-    // Anything else -> whichever tab this chat is currently on
+    // Anything else -> whichever tab this chat is currently on. Chat mode
+    // (especially with tool use) can take a few seconds, so show "typing…"
+    // for the whole wait instead of the chat looking stuck.
     const mode = await getMode(chatId)
-    const reply = await askClaude(chatId, mode, text)
+    const reply = await withTyping(chatId, () => askClaude(chatId, mode, text))
     await sendMessage(chatId, reply)
     return res.status(200).end()
   } catch (e) {
