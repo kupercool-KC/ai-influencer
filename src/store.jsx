@@ -37,11 +37,34 @@ function readInfluencer(id) {
 function writeInfluencer(inf) {
   try {
     localStorage.setItem(`${INF_PREFIX}${inf.id}`, JSON.stringify(inf))
+    syncInfluencerToDB(inf)
     return true
   } catch (e) {
     console.warn(`localStorage quota exceeded — influencer "${inf.name}" not saved`, e)
     return false
   }
+}
+
+// Mirrors localStorage into Supabase so the influencer survives a cleared
+// browser and is queryable from server-side code (Buffer scheduling, etc.).
+// localStorage stays the source of truth the app actually reads from — this
+// is fire-and-forget and never blocks or throws into the caller.
+const _lastSyncedJSON = new Map()
+function syncInfluencerToDB(inf) {
+  const json = JSON.stringify(inf)
+  if (_lastSyncedJSON.get(inf.id) === json) return // unchanged since last sync
+  _lastSyncedJSON.set(inf.id, json)
+  fetch('/api/db/influencers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: inf.id, name: inf.name, gender: inf.gender, niche: inf.niche, data: inf }),
+  }).catch(e => console.warn(`DB sync failed for influencer "${inf.name}"`, e))
+}
+
+function deleteInfluencerFromDB(id) {
+  _lastSyncedJSON.delete(id)
+  fetch(`/api/db/influencers?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    .catch(e => console.warn(`DB delete failed for influencer ${id}`, e))
 }
 
 function readIds() {
@@ -106,7 +129,10 @@ function useInfluencerStore(initial) {
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith(INF_PREFIX)) {
         const id = key.slice(INF_PREFIX.length)
-        if (!idSet.has(id)) try { localStorage.removeItem(key) } catch {}
+        if (!idSet.has(id)) {
+          try { localStorage.removeItem(key) } catch {}
+          deleteInfluencerFromDB(id)
+        }
       }
     }
   }, [influencers])

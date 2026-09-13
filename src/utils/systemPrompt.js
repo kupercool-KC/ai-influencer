@@ -1091,6 +1091,9 @@ function buildSkinBlock(timeLabel, gender, physicalDesc) {
 — ${envReactions[timeLabel] || envReactions['overcast soft daylight']}
 — ${R(['a small healing blemish on the left jaw, slightly pinker than surrounding skin', 'faint asymmetric sun pigmentation near the right temple', 'two freckles placed asymmetrically across the nose and left cheek', 'a faint old thin scar below the right jawline — barely there, photographically real', 'slight horizontal pressure line across the forehead from a hat worn earlier'])}
 — Left brow sits marginally higher than the right; one nostril slightly narrower; cupid's bow peaks uneven — natural asymmetry throughout
+— Fine individual iris fiber detail visible up close, catching the key light; natural uneven lash clumping, not a false-lash fan
+— ${hasFair ? 'Faint capillary redness at the nostril wings and inner corners of the eyes, visible through the thin skin there' : 'Subtle warm undertone at the nostril wings and inner corners of the eyes where the skin is thinnest'}
+— Lips show natural texture — fine vertical lip lines, a slightly drier patch near one corner, no gloss-even coating
 — Subtle digital sensor noise in the shadow areas consistent with iPhone auto-ISO`
 }
 

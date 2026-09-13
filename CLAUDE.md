@@ -85,6 +85,24 @@ isn't installed on a given machine — never block work on its absence.
   pose set (`POSES_SOUL`) because it struggles with detailed spatial pose
   instructions.
 
+## File & asset storage
+
+Standing rule (set 2026-09-13): every file, image, or video that comes up in a
+session — research docs the owner uploads, persona reference images, generation
+output — gets a defined home instead of living only in chat/scratch. Claude decides
+which of these it is:
+
+- **Research / reference documents** (market research, briefs, articles saved for
+  reference) → `docs/research/`.
+- **Persona specs and their reference images** → `docs/personas/<persona-name>/`
+  (see `docs/personas/mila-berlin-draft.md` for the spec format; put reference
+  images alongside it in the same folder, not in a separate uploads location).
+- **Generated media (photos/videos from Higgsfield)** → not duplicated into the
+  repo — too large/binary for git. The source of truth is a row in the `media_assets`
+  Supabase table pointing at the CDN URL; the repo never stores the binary.
+- Anything genuinely temporary (a one-off check, an intermediate file) still goes
+  in the scratchpad, not here — this convention is for things worth keeping.
+
 ## Things not to do
 
 - **Never kill the Vite dev server** (port 5173). The owner wants it
