@@ -10,11 +10,12 @@
 //     this coding session — it has no memory of anything done outside this
 //     bot's own conversation history.
 //
-// Security: only responds to TELEGRAM_OWNER_CHAT_ID, and only accepts
-// requests carrying the secret token Telegram was configured to send
-// (X-Telegram-Bot-Api-Secret-Token) — anyone else's message is silently
-// ignored, since this bot can spend real money (Higgsfield credits, API
-// calls, GitHub Actions minutes).
+// Security: only responds to chat IDs listed in TELEGRAM_ALLOWED_CHAT_IDS
+// (comma-separated — TELEGRAM_OWNER_CHAT_ID alone still works for a single
+// user), and only accepts requests carrying the secret token Telegram was
+// configured to send (X-Telegram-Bot-Api-Secret-Token) — anyone else's
+// message is silently ignored, since this bot can spend real money
+// (Higgsfield credits, API calls, GitHub Actions minutes).
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, mainMenuKeyboard } from '../../lib/telegramClient.js'
@@ -38,6 +39,33 @@ async function saveHistory(chatId, messages) {
   await db.from('telegram_chats').upsert({ chat_id: String(chatId), messages, updated_at: new Date().toISOString() })
 }
 
+const PROJECT_CONTEXT = `You are the project assistant for "AI Influencer Studio" — a React+Vite app
+(repo: kupercool-KC/ai-influencer) for building and running AI influencer personas end to end.
+
+Current personas: Kayla, Camila, Olivia (established), and Ivy Vale (newest — a Byron Bay
+coastal-wellness yoga instructor persona, Character A "The Wellness Aesthetic" from the
+project's 3-persona portfolio strategy: Wellness / Luxury Traveler / Niche).
+
+Pipeline (all in this one repo):
+- Content Scout (agents/content-scout/, .github/workflows/content-scout.yml) — researches
+  competing TikTok/Instagram/YouTube content for a niche.
+- Generation (.github/workflows/higgsfield-generate.yml) — runs the official Higgsfield CLI
+  server-side. The in-app browser "Generate" button is currently broken (Higgsfield's MCP
+  endpoint rejects the app's dynamically-registered OAuth client with "Forbidden origin" —
+  not fixable in our code, confirmed by testing the same endpoint with the CLI's own
+  pre-approved OAuth client, which works). The CLI/workflow path is the working substitute.
+- Dispatch (agents/dispatch/, .github/workflows/buffer-dispatch.yml) — creates Buffer DRAFT
+  posts (never auto-publishes — content is still reviewed and published by hand).
+- You (this Telegram bot) — one menu button per agent, plus this Chat mode.
+
+Data model: Supabase tables influencers, expenses, media_assets (source of truth for
+generated media, with version history via is_current), scheduled_dispatches, activity_logs,
+fan_interactions, telegram_chats. Full reference: docs/db-schema.md in the repo.
+
+Answer as a knowledgeable collaborator on this specific project — concise, direct, no filler.
+If asked to do something that requires code changes or terminal access you don't have here,
+say so plainly rather than pretending to have done it.`
+
 async function askClaude(chatId, userText) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
@@ -55,6 +83,7 @@ async function askClaude(chatId, userText) {
     body: JSON.stringify({
       model: 'claude-sonnet-4-5',
       max_tokens: 1024,
+      system: PROJECT_CONTEXT,
       messages,
     }),
   })
@@ -69,6 +98,13 @@ function parsePipes(text) {
   return text.split('|').map(s => s.trim()).filter(Boolean)
 }
 
+function allowedChatIds() {
+  const list = [process.env.TELEGRAM_OWNER_CHAT_ID, ...(process.env.TELEGRAM_ALLOWED_CHAT_IDS || '').split(',')]
+    .map(s => (s || '').trim())
+    .filter(Boolean)
+  return new Set(list)
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).send('Method not allowed')
 
@@ -77,14 +113,14 @@ export default async function handler(req, res) {
     return res.status(401).send('Unauthorized')
   }
 
-  const ownerChatId = process.env.TELEGRAM_OWNER_CHAT_ID
+  const allowed = allowedChatIds()
   const update = req.body || {}
 
   try {
     if (update.callback_query) {
       const cq = update.callback_query
       const chatId = cq.message.chat.id
-      if (ownerChatId && String(chatId) !== String(ownerChatId)) return res.status(200).end()
+      if (allowed.size && !allowed.has(String(chatId))) return res.status(200).end()
 
       const key = cq.data.replace('menu:', '')
       await answerCallbackQuery(cq.id, '')
@@ -96,8 +132,8 @@ export default async function handler(req, res) {
     if (!msg || !msg.text) return res.status(200).end()
     const chatId = msg.chat.id
 
-    if (ownerChatId && String(chatId) !== String(ownerChatId)) {
-      // Not the owner — never trigger anything, never spend money, don't even reply.
+    if (allowed.size && !allowed.has(String(chatId))) {
+      // Not an allowed user — never trigger anything, never spend money, don't even reply.
       return res.status(200).end()
     }
 
@@ -141,7 +177,7 @@ export default async function handler(req, res) {
     await sendMessage(chatId, reply)
     return res.status(200).end()
   } catch (e) {
-    try { await sendMessage(update.message?.chat?.id || ownerChatId, `Error: ${e.message}`) } catch { /* best effort */ }
+    try { await sendMessage(update.message?.chat?.id || process.env.TELEGRAM_OWNER_CHAT_ID, `Error: ${e.message}`) } catch { /* best effort */ }
     return res.status(200).end()
   }
 }
