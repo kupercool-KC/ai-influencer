@@ -87,7 +87,7 @@ jobs:
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "Generated: $URL"
 
-      - name: Write result into Supabase (optional)
+      - name: Record in media_assets and update the influencer profile (optional)
         if: ${{ inputs.influencer_id != '' && inputs.image_slot != '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -99,6 +99,23 @@ jobs:
             exit 0
           fi
 
+          # media_assets is the source of truth for history — mark any prior
+          # asset in this slot as no longer current, then insert the new one.
+          curl -s -X PATCH "$SUPABASE_URL/rest/v1/media_assets?influencer_id=eq.${{ inputs.influencer_id }}&slot=eq.${{ inputs.image_slot }}&is_current=eq.true" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+            -d '{"is_current": false}'
+
+          curl -s -X POST "$SUPABASE_URL/rest/v1/media_assets" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" -H "Prefer: return=minimal" \
+            -d "$(jq -n --arg iid "${{ inputs.influencer_id }}" --arg slot "${{ inputs.image_slot }}" \
+                  --arg url "${{ steps.gen.outputs.url }}" --arg model "${{ inputs.model }}" \
+                  --arg ar "${{ inputs.aspect_ratio }}" --arg prompt "${{ inputs.prompt }}" \
+                  '{influencer_id:$iid, slot:$slot, type:"image", url:$url, model:$model, aspect_ratio:$ar, prompt:$prompt, source:"cli", is_current:true, label:$slot}')"
+
+          # Also keep the influencer's own profile row in sync, since the app
+          # reads mainImage/characterSheetImage/etc directly off it.
           ROW=$(curl -s "$SUPABASE_URL/rest/v1/influencers?id=eq.${{ inputs.influencer_id }}&select=*" \
             -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
             -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
@@ -114,4 +131,4 @@ jobs:
             -H "Prefer: return=minimal" \
             -d @/tmp/payload.json
 
-          echo "Wrote ${{ inputs.image_slot }} = ${{ steps.gen.outputs.url }} for influencer ${{ inputs.influencer_id }}"
+          echo "Wrote ${{ inputs.image_slot }} = ${{ steps.gen.outputs.url }} for influencer ${{ inputs.influencer_id }} (media_assets + influencers)"

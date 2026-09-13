@@ -4,8 +4,11 @@
 // saveToDraft to false / add scheduling here.
 //
 // Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"
+//   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
 //
-// Requires BUFFER_API_KEY in the environment.
+// Requires BUFFER_API_KEY in the environment. If SUPABASE_URL +
+// SUPABASE_SERVICE_ROLE_KEY are also set, records the draft as a row in
+// scheduled_dispatches (skipped silently otherwise).
 
 function parseArgs(argv) {
   const out = {}
@@ -30,8 +33,31 @@ async function bufferQuery(query, variables) {
   return data.data
 }
 
+async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId }) {
+  const url = process.env.SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key || !platform) return // optional — skip quietly if not configured
+
+  await fetch(`${url}/rest/v1/scheduled_dispatches`, {
+    method: 'POST',
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    },
+    body: JSON.stringify({
+      influencer_id: influencerId || null,
+      media_asset_id: mediaAssetId || null,
+      platform,
+      buffer_post_id: bufferPostId,
+      status: 'pending', // it's a draft in Buffer, not yet published
+    }),
+  }).catch(e => console.error('Warning: failed to record scheduled_dispatch:', e.message))
+}
+
 async function main() {
-  const { channel, image, text } = parseArgs(process.argv.slice(2))
+  const { channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId } = parseArgs(process.argv.slice(2))
   if (!channel || !image || !text) {
     console.error('Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"')
     process.exit(1)
@@ -67,6 +93,7 @@ async function main() {
     process.exit(1)
   }
   console.log(`Draft created: post id ${result.post.id}`)
+  await recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId: result.post.id })
 }
 
 main().catch(e => { console.error(e.message); process.exit(1) })
