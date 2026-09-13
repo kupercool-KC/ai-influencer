@@ -19,3 +19,4 @@ npm-debug.log*
 docs/personas/*/references/
 agents/content-scout/data/
 agents/content-scout/.venv/
+/content_scout/
