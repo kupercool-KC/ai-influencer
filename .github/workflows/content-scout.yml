@@ -46,12 +46,18 @@ jobs:
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          # Untrusted inputs via env var, not inline in the script — see
+          # buffer-dispatch.yml for why (GitHub Actions script injection).
+          IN_NICHE: ${{ inputs.niche }}
+          IN_PLATFORMS: ${{ inputs.platforms }}
+          IN_PER_PLATFORM_LIMIT: ${{ inputs.per_platform_limit }}
+          IN_SINCE_DAYS: ${{ inputs.since_days }}
         run: |
           python -m content_scout.cli run \
-            --niche "${{ inputs.niche }}" \
-            --platforms "${{ inputs.platforms }}" \
-            --per-platform-limit "${{ inputs.per_platform_limit }}" \
-            --since-days "${{ inputs.since_days }}" \
+            --niche "$IN_NICHE" \
+            --platforms "$IN_PLATFORMS" \
+            --per-platform-limit "$IN_PER_PLATFORM_LIMIT" \
+            --since-days "$IN_SINCE_DAYS" \
             2>&1 | tee run.log
 
       - name: Upload report as artifact

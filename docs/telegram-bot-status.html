@@ -1,0 +1,319 @@
+<title>Telegram Bot Status</title>
+<meta name="description" content="What shipped today on the AI Influencer Studio Telegram control bot: per-tab conversations, owner-only data tools, sandboxed code execution, and the security/CI fixes that came with them.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --bg-raised: #ffffff;
+    --ink: #1e2126;
+    --ink-dim: #565b66;
+    --ink-faint: #8a8f99;
+    --line: #e2ded4;
+    --accent: #0d7a68;
+    --accent-ink: #ffffff;
+    --accent-soft: #e3f1ed;
+    --warn: #a8431e;
+    --warn-soft: #fbeee6;
+    --owner: #5b4a9e;
+    --owner-soft: #ece8f7;
+    --code-bg: #1e2126;
+    --code-ink: #e8e6df;
+    --shadow: 0 1px 2px rgba(30,33,38,0.04), 0 8px 24px rgba(30,33,38,0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171b;
+      --bg-raised: #1c1f24;
+      --ink: #eceae4;
+      --ink-dim: #a7acb6;
+      --ink-faint: #767c87;
+      --line: #2c3038;
+      --accent: #35b89e;
+      --accent-ink: #0c1a17;
+      --accent-soft: #16302a;
+      --warn: #e08a5e;
+      --warn-soft: #3a2419;
+      --owner: #a698e0;
+      --owner-soft: #292344;
+      --code-bg: #0f1114;
+      --code-ink: #e8e6df;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171b;
+    --bg-raised: #1c1f24;
+    --ink: #eceae4;
+    --ink-dim: #a7acb6;
+    --ink-faint: #767c87;
+    --line: #2c3038;
+    --accent: #35b89e;
+    --accent-ink: #0c1a17;
+    --accent-soft: #16302a;
+    --warn: #e08a5e;
+    --warn-soft: #3a2419;
+    --owner: #a698e0;
+    --owner-soft: #292344;
+    --code-bg: #0f1114;
+    --code-ink: #e8e6df;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+  /* header */
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--ink-dim);
+    margin-bottom: 18px;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+    flex: none;
+  }
+  h1 {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    margin: 0 0 6px;
+  }
+  .subtitle {
+    color: var(--ink-dim);
+    font-size: 15.5px;
+    max-width: 60ch;
+    margin: 0 0 32px;
+  }
+
+  /* section list */
+  .log {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  section.entry {
+    background: var(--bg-raised);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 22px 24px;
+    box-shadow: var(--shadow);
+  }
+  .log > section.entry + section.entry { margin-top: 14px; }
+
+  .entry-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .entry-head h2 {
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0;
+    letter-spacing: -0.005em;
+  }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .badge.owner { background: var(--owner-soft); color: var(--owner); }
+  .badge.security { background: var(--warn-soft); color: var(--warn); }
+  .badge.fix { background: var(--accent-soft); color: var(--accent); }
+
+  .entry p { color: var(--ink-dim); font-size: 14.5px; margin: 0 0 10px; max-width: 62ch; }
+  .entry p:last-child { margin-bottom: 0; }
+  .entry ul { margin: 8px 0 0; padding-left: 18px; color: var(--ink-dim); font-size: 14px; }
+  .entry li { margin-bottom: 4px; }
+  .entry li:last-child { margin-bottom: 0; }
+  .entry li b, .entry p b { color: var(--ink); font-weight: 600; }
+
+  .tag {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 1px 6px;
+    border-radius: 4px;
+  }
+
+  code.inline {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    font-size: 12.5px;
+    padding: 1.5px 6px;
+    border-radius: 4px;
+  }
+
+  /* divider label */
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 32px 0 14px;
+    color: var(--ink-faint);
+    font-size: 11.5px;
+    font-family: "IBM Plex Mono", monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--ink-faint);
+  }
+  footer a { color: var(--ink-dim); text-decoration: none; border-bottom: 1px solid var(--line); }
+  footer a:hover { color: var(--accent); border-color: var(--accent); }
+
+  @media (max-width: 480px) {
+    .wrap { padding: 32px 16px 72px; }
+    h1 { font-size: 25px; }
+  }
+</style>
+
+<div class="wrap">
+  <div class="status-row"><span class="dot"></span> BOT LIVE &nbsp;·&nbsp; kupercool-KC/ai-influencer &nbsp;·&nbsp; updated 2026-09-14</div>
+  <h1>Telegram control bot — today's build</h1>
+  <p class="subtitle">Ivy Vale's launch pushed the Telegram bot from a single flat chat into a real multi-agent control surface, plus the security work that had to come with giving it more reach.</p>
+
+  <div class="divider">Conversation model</div>
+  <div class="log">
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Per-tab conversations</h2>
+        <div class="badges"><span class="badge fix">Shipped</span></div>
+      </div>
+      <p>A persistent keyboard under the text box — <span class="tag">🔍 Scout</span> <span class="tag">🎨 Generate</span> <span class="tag">📤 Dispatch</span> <span class="tag">💬 Chat</span> — replaces the old inline menu. Tapping a tab switches which agent free-text messages go to.</p>
+      <ul>
+        <li>Each tab keeps its <b>own memory</b> — <code class="inline">telegram_chats.histories</code>, keyed by tab — so switching never bleeds context between conversations.</li>
+        <li>Each tab has its own agent-focused system prompt (e.g. Scout mode proposes the exact <code class="inline">/scout</code> command for what you describe).</li>
+        <li>Slash commands still work from any tab, regardless of which one is active.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="divider">New capabilities — owner only</div>
+  <div class="log">
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Read/write access to live data</h2>
+        <div class="badges"><span class="badge owner">Owner only</span><span class="badge fix">Shipped</span></div>
+      </div>
+      <p>In the owner's chat, Claude can read and update real Supabase rows — influencers, media_assets, expenses, activity_logs, scheduled_dispatches — so "what's Ivy Vale's audience?" or "update her voice to X" just works in plain language.</p>
+      <ul>
+        <li>Cannot touch database schema, run migrations, or edit this repo's code — data rows only.</li>
+        <li>A second authorized user can chat in every tab but gets <b>none</b> of these tools — gated to the exact owner <code class="inline">chat_id</code>.</li>
+      </ul>
+    </section>
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Sandboxed code execution — <code class="inline" style="background:none;color:inherit;padding:0;font-size:inherit">run_code</code></h2>
+        <div class="badges"><span class="badge owner">Owner only</span><span class="badge security">Higher risk</span></div>
+      </div>
+      <p>Explicitly requested: Claude can run a bash or Node script on a throwaway GitHub Actions runner and report the output back as a follow-up message. Contained deliberately, since this is real code execution reachable from a phone:</p>
+      <ul>
+        <li><b>No access</b> to this app's real secrets — Supabase, Buffer, Higgsfield, and the GitHub PAT are never passed to that job.</li>
+        <li>Read-only checkout — the job cannot push commits back to the repo.</li>
+        <li>Hard 5-minute timeout so a runaway script can't burn Actions minutes.</li>
+        <li>Treat the bot token and webhook secret like production credentials — either one (or the owner's Telegram account) leaking means arbitrary code execution here.</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="divider">Security hardening</div>
+  <div class="log">
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Fixed GitHub Actions script injection</h2>
+        <div class="badges"><span class="badge security">Security</span></div>
+      </div>
+      <p>All three agent workflows (<code class="inline">content-scout</code>, <code class="inline">higgsfield-generate</code>, <code class="inline">buffer-dispatch</code>) were interpolating untrusted inputs (prompt, caption, niche…) directly into shell scripts. A value with shell metacharacters could have broken out and run arbitrary commands with that job's secrets in scope. Fixed by routing every input through <code class="inline">env:</code> instead.</p>
+    </section>
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Webhook now fails closed</h2>
+        <div class="badges"><span class="badge security">Security</span></div>
+      </div>
+      <p>Previously, an unset <code class="inline">TELEGRAM_WEBHOOK_SECRET</code> meant the bot silently accepted <i>any</i> request. Now a missing secret rejects everything.</p>
+    </section>
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Prompt-injection defense on tool data</h2>
+        <div class="badges"><span class="badge security">Security</span></div>
+      </div>
+      <p>The app's <code class="inline">api/db/*</code> endpoints have no auth layer yet, so a planted field value could in theory try to instruct Claude through a tool result. The owner's system prompt now explicitly flags tool output as untrusted data, never as commands to follow.</p>
+    </section>
+  </div>
+
+  <div class="divider">Bugs fixed today</div>
+  <div class="log">
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Markdown parse errors dropping replies</h2>
+        <div class="badges"><span class="badge fix">Fixed</span></div>
+      </div>
+      <p><code class="inline">Bad Request: can't parse entities</code> — a free-form Claude reply with an unmatched <code class="inline">*</code> or <code class="inline">`</code> made Telegram reject the whole message. <code class="inline">sendMessage</code> now retries as plain text instead of failing silently.</p>
+    </section>
+    <section class="entry">
+      <div class="entry-head">
+        <h2>Second user's menu tap did nothing</h2>
+        <div class="badges"><span class="badge fix">Fixed</span></div>
+      </div>
+      <p>Introducing the new tab keyboard silently dropped taps on the <i>old</i> inline menu (still on-screen for anyone who hadn't re-run <code class="inline">/start</code>). Legacy taps now switch tabs the same way, and always clear the button's loading spinner.</p>
+    </section>
+    <section class="entry">
+      <div class="entry-head">
+        <h2>"Deploy Database Migrations" failing on every push</h2>
+        <div class="badges"><span class="badge fix">Fixed</span></div>
+      </div>
+      <p>Two migrations applied directly against Supabase mid-session were never committed as files here, so <code class="inline">supabase db push</code> rejected every deploy with <i>"Remote migration versions not found in local migrations directory."</i> Backfilled both files, content verified against the live schema.</p>
+    </section>
+  </div>
+
+  <footer>
+    <span>Source: <code class="inline">agents/README.md</code></span>
+    <span><a href="https://github.com/kupercool-KC/ai-influencer/pull/13" target="_blank" rel="noopener">PR #13</a> · <a href="https://github.com/kupercool-KC/ai-influencer/pull/14" target="_blank" rel="noopener">PR #14</a></span>
+  </footer>
+</div>

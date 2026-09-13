@@ -1,0 +1,102 @@
+name: Run code (owner only)
+
+# Executes an arbitrary bash or Node script on an ephemeral GitHub Actions
+# runner, triggered from the Telegram bot's Chat tabs (owner's chat_id
+# only — see api/telegram/webhook.js's isOwner() gate and lib/telegramTools.js).
+#
+# Deliberately contained:
+#   - Runs on a throwaway GitHub-hosted runner, never on the Vercel
+#     production server itself.
+#   - Gets NONE of the app's real secrets (no Supabase, Buffer, Higgsfield,
+#     Apify, YouTube, or GitHub PAT) — only enough to post the result back
+#     to Telegram. A run here cannot touch the database or third-party
+#     accounts unless a future change deliberately adds a specific secret.
+#   - Checks out the repo read-only (persist-credentials: false) so the
+#     job cannot push changes back, even by accident.
+#   - Hard time limit so a runaway script can't burn Actions minutes
+#     indefinitely.
+#
+# This is still real code execution reachable from a phone conversation —
+# treat the Telegram bot token and TELEGRAM_WEBHOOK_SECRET with the same
+# care as a production credential, since anyone who obtains them (or
+# control of the owner's Telegram account) can run arbitrary code here.
+
+on:
+  workflow_dispatch:
+    inputs:
+      language:
+        description: "bash | node"
+        required: true
+        default: bash
+      code_b64:
+        description: "Base64-encoded script to run"
+        required: true
+      label:
+        description: "Short description, echoed back in the result message"
+        required: false
+        default: ""
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        if: ${{ inputs.language == 'node' }}
+        with:
+          node-version: "20"
+
+      - name: Decode script
+        env:
+          IN_CODE_B64: ${{ inputs.code_b64 }}
+          IN_LANGUAGE: ${{ inputs.language }}
+        run: echo "$IN_CODE_B64" | base64 -d > /tmp/script.$([ "$IN_LANGUAGE" = "node" ] && echo js || echo sh)
+
+      - name: Run
+        id: run
+        continue-on-error: true
+        env:
+          IN_LANGUAGE: ${{ inputs.language }}
+        run: |
+          set +e
+          if [ "$IN_LANGUAGE" = "node" ]; then
+            OUTPUT=$(node /tmp/script.js 2>&1)
+          else
+            OUTPUT=$(bash /tmp/script.sh 2>&1)
+          fi
+          CODE=$?
+          # Telegram messages cap at 4096 chars — leave room for the wrapper text.
+          OUTPUT="${OUTPUT:0:3500}"
+          {
+            echo "output<<EOF"
+            echo "$OUTPUT"
+            echo "EOF"
+            echo "exit_code=$CODE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report result back to Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          IN_LABEL: ${{ inputs.label }}
+          RUN_OUTPUT: ${{ steps.run.outputs.output }}
+          RUN_EXIT_CODE: ${{ steps.run.outputs.exit_code }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_CHAT_ID" ]; then
+            echo "TELEGRAM_BOT_TOKEN / TELEGRAM_OWNER_CHAT_ID secrets not set — result not delivered. Output was:"
+            echo "$RUN_OUTPUT"
+            exit 0
+          fi
+          # Plain text, no parse_mode — the run's own output can contain
+          # anything (stray backticks/asterisks), which would otherwise make
+          # Telegram's Markdown parser reject the whole message.
+          TEXT="Run finished (exit $RUN_EXIT_CODE)${IN_LABEL:+ — $IN_LABEL}:"$'\n'"$RUN_OUTPUT"
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" \
+                  '{chat_id:$chat_id, text:$text}')"
