@@ -135,6 +135,7 @@ def run_pipeline(
     *,
     niche: str,
     platforms: list[str],
+    instagram_accounts: str | None = None,
     per_platform_limit: int = 20,
     since_days: int = 14,
     recency_half_life_days: float = 30.0,
@@ -174,8 +175,12 @@ def run_pipeline(
     errors: list[str] = []
     total_selected = 0
     for platform in platforms:
+        # Instagram's hashtag/keyword search now requires a login we deliberately don't use
+        # (see content_scout/platforms/instagram.py) — it takes specific account handles
+        # instead, which is a different kind of input than TikTok/YouTube's niche keyword.
+        query = instagram_accounts if platform == "instagram" and instagram_accounts else niche
         try:
-            selected = _discover_and_rank(platform, niche, settings, since_days, per_platform_limit, recency_half_life_days)
+            selected = _discover_and_rank(platform, query, settings, since_days, per_platform_limit, recency_half_life_days)
         except Exception as exc:  # noqa: BLE001
             msg = f"[{platform}] discovery failed: {exc}"
             log.error(msg)

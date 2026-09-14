@@ -11,12 +11,16 @@ on:
   workflow_dispatch:
     inputs:
       niche:
-        description: "Keyword/hashtag/niche to search, e.g. 'coastal wellness yoga'"
+        description: "Keyword/hashtag/niche to search on TikTok/YouTube, e.g. 'coastal wellness yoga'"
         required: true
       platforms:
         description: "Comma-separated: tiktok,instagram,youtube"
         default: "tiktok,instagram,youtube"
         required: true
+      instagram_accounts:
+        description: "Comma-separated Instagram usernames to watch (Instagram needs specific accounts, not a keyword — see platforms/instagram.py). Leave blank to fall back to 'niche'."
+        default: ""
+        required: false
       per_platform_limit:
         description: "Max items per platform"
         default: "15"
@@ -40,7 +44,9 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
 
       - name: Run content scout
         env:
@@ -50,12 +56,14 @@ jobs:
           # buffer-dispatch.yml for why (GitHub Actions script injection).
           IN_NICHE: ${{ inputs.niche }}
           IN_PLATFORMS: ${{ inputs.platforms }}
+          IN_INSTAGRAM_ACCOUNTS: ${{ inputs.instagram_accounts }}
           IN_PER_PLATFORM_LIMIT: ${{ inputs.per_platform_limit }}
           IN_SINCE_DAYS: ${{ inputs.since_days }}
         run: |
           python -m content_scout.cli run \
             --niche "$IN_NICHE" \
             --platforms "$IN_PLATFORMS" \
+            --instagram-accounts "$IN_INSTAGRAM_ACCOUNTS" \
             --per-platform-limit "$IN_PER_PLATFORM_LIMIT" \
             --since-days "$IN_SINCE_DAYS" \
             2>&1 | tee run.log

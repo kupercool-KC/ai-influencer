@@ -48,6 +48,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             settings,
             niche=args.niche,
             platforms=platforms,
+            instagram_accounts=args.instagram_accounts,
             per_platform_limit=args.per_platform_limit,
             since_days=args.since_days,
             recency_half_life_days=args.recency_half_life_days,
@@ -125,8 +126,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_run = sub.add_parser("run", help="Discover, download, transcribe, and OCR videos for a niche.")
-    p_run.add_argument("--niche", required=True, help="Keyword/hashtag/niche to search, e.g. 'fashion model reels'")
+    p_run.add_argument("--niche", required=True, help="Keyword/hashtag/niche to search (TikTok/YouTube), e.g. 'fashion model reels'")
     p_run.add_argument("--platforms", required=True, help="Comma-separated: tiktok,instagram,youtube")
+    p_run.add_argument(
+        "--instagram-accounts",
+        default=None,
+        help="Comma-separated Instagram usernames/profile URLs to watch (Instagram needs specific "
+        "accounts, not a keyword — see platforms/instagram.py). Falls back to --niche if omitted.",
+    )
     p_run.add_argument("--per-platform-limit", type=int, default=20)
     p_run.add_argument("--since-days", type=int, default=14)
     p_run.add_argument("--recency-half-life-days", type=float, default=30.0)
