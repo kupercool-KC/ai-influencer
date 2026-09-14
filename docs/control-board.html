@@ -1,0 +1,652 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1"><style>:root{color-scheme:light}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}</style></head><body>
+<title>Influencer Studio Control Board</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --ground: #F4F6F8;
+    --surface: #FFFFFF;
+    --surface-2: #EDF0F4;
+    --line: #DDE3EA;
+    --line-strong: #C3CCD6;
+    --ink: #0F151C;
+    --ink-2: #47535F;
+    --ink-3: #74818E;
+    --accent: #0B7F78;
+    --accent-soft: #E0F2F0;
+    --done: #08794F;
+    --done-soft: #DCF3E8;
+    --active: #A45907;
+    --active-soft: #FBEEDA;
+    --queued: #5B6875;
+    --queued-soft: #E6EAEF;
+    --blocked: #B3123C;
+    --blocked-soft: #FCE3EA;
+    --shadow: 0 1px 2px rgba(15,21,28,.06), 0 4px 16px rgba(15,21,28,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0B1016;
+      --surface: #141B23;
+      --surface-2: #1B242E;
+      --line: #26313D;
+      --line-strong: #37454F;
+      --ink: #E7EDF3;
+      --ink-2: #A6B4C1;
+      --ink-3: #7A8896;
+      --accent: #35CFC2;
+      --accent-soft: #10312F;
+      --done: #40D394;
+      --done-soft: #0D2C21;
+      --active: #F0AC45;
+      --active-soft: #33240E;
+      --queued: #8494A2;
+      --queued-soft: #1E272F;
+      --blocked: #FB7492;
+      --blocked-soft: #35111D;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 18px rgba(0,0,0,.32);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0B1016;
+    --surface: #141B23;
+    --surface-2: #1B242E;
+    --line: #26313D;
+    --line-strong: #37454F;
+    --ink: #E7EDF3;
+    --ink-2: #A6B4C1;
+    --ink-3: #7A8896;
+    --accent: #35CFC2;
+    --accent-soft: #10312F;
+    --done: #40D394;
+    --done-soft: #0D2C21;
+    --active: #F0AC45;
+    --active-soft: #33240E;
+    --queued: #8494A2;
+    --queued-soft: #1E272F;
+    --blocked: #FB7492;
+    --blocked-soft: #35111D;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 4px 18px rgba(0,0,0,.32);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 24px 96px; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 500;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: Archivo, ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700; font-size: clamp(30px, 4.4vw, 44px);
+    line-height: 1.08; letter-spacing: -.022em;
+    margin: 10px 0 12px; text-wrap: balance;
+  }
+  .sub { color: var(--ink-2); max-width: 66ch; margin: 0; }
+  .stamp {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px;
+    color: var(--ink-3); margin-top: 14px;
+  }
+
+  h2 {
+    font-family: Archivo, sans-serif; font-weight: 600;
+    font-size: 21px; letter-spacing: -.012em;
+    margin: 0; text-wrap: balance;
+  }
+  h3 {
+    font-family: Archivo, sans-serif; font-weight: 600;
+    font-size: 16px; letter-spacing: -.005em; margin: 0;
+  }
+
+  /* ── Summary tiles ───────────────────────── */
+  .tiles {
+    display: grid; gap: 12px; margin: 34px 0 8px;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+  .tile {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px 16px 14px;
+    box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .tile::before {
+    content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
+    background: var(--tint, var(--queued));
+  }
+  .tile .n {
+    font-family: Archivo, sans-serif; font-weight: 700;
+    font-size: 30px; line-height: 1; letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums; color: var(--tint, var(--ink));
+  }
+  .tile .lab {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); margin-top: 8px;
+  }
+  .t-done { --tint: var(--done); }
+  .t-active { --tint: var(--active); }
+  .t-queued { --tint: var(--queued); }
+  .t-blocked { --tint: var(--blocked); }
+
+  .meter {
+    margin: 18px 0 0; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 15px 18px; box-shadow: var(--shadow);
+  }
+  .meter-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 12px; margin-bottom: 10px;
+  }
+  .meter-top span:first-child {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3);
+  }
+  .meter-top span:last-child {
+    font-family: Archivo, sans-serif; font-weight: 600; font-size: 15px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar { height: 7px; border-radius: 99px; background: var(--surface-2); display: flex; overflow: hidden; }
+  .bar i { display: block; height: 100%; }
+
+  /* ── Pipeline ────────────────────────────── */
+  .section { margin-top: 56px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+  .sec-head .idx {
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; font-weight: 600;
+    color: var(--accent); letter-spacing: .06em;
+  }
+  .sec-note { color: var(--ink-2); font-size: 14px; margin: 0 0 20px; max-width: 68ch; }
+
+  .flow { overflow-x: auto; padding-bottom: 8px; }
+  .flow-inner { display: flex; gap: 0; min-width: 1060px; align-items: stretch; }
+  .step {
+    flex: 1; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 14px 16px; position: relative;
+    box-shadow: var(--shadow);
+  }
+  .step + .step { margin-left: 22px; }
+  .step + .step::before {
+    content: ""; position: absolute; left: -18px; top: 50%;
+    width: 14px; height: 1.5px; background: var(--line-strong);
+  }
+  .step + .step::after {
+    content: ""; position: absolute; left: -7px; top: 50%;
+    transform: translateY(-50%); width: 0; height: 0;
+    border-left: 5px solid var(--line-strong);
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  }
+  .step .who {
+    font-family: "IBM Plex Mono", monospace; font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); margin-bottom: 7px;
+  }
+  .step .what {
+    font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px;
+    line-height: 1.3; margin-bottom: 7px;
+  }
+  .step .how { font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+  .step.human { border-color: var(--accent); background: var(--accent-soft); }
+  .step.human .who { color: var(--accent); }
+
+  /* ── Task rows ───────────────────────────── */
+  .rows {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .row {
+    display: grid; grid-template-columns: 104px 1fr; gap: 16px;
+    padding: 13px 18px; border-top: 1px solid var(--line); align-items: start;
+  }
+  .row:first-child { border-top: 0; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 5px; white-space: nowrap;
+  }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 99px; background: currentColor; flex: none; }
+  .c-done { color: var(--done); background: var(--done-soft); }
+  .c-active { color: var(--active); background: var(--active-soft); }
+  .c-queued { color: var(--queued); background: var(--queued-soft); }
+  .c-blocked { color: var(--blocked); background: var(--blocked-soft); }
+  .row .title { font-weight: 500; }
+  .row .desc { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; }
+  code {
+    font-family: "IBM Plex Mono", monospace; font-size: .87em;
+    background: var(--surface-2); padding: 1.5px 5px; border-radius: 4px;
+  }
+
+  /* ── Decisions ───────────────────────────── */
+  .decks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+  .deck {
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--blocked); border-radius: 10px;
+    padding: 16px 18px; box-shadow: var(--shadow);
+  }
+  .deck.settled { border-left-color: var(--done); }
+  .deck h3 { margin-bottom: 7px; }
+  .deck p { margin: 0; font-size: 13.5px; color: var(--ink-2); }
+  .deck .ask {
+    margin-top: 10px; font-size: 13px; color: var(--ink);
+    font-weight: 500; border-top: 1px dashed var(--line); padding-top: 9px;
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .tbl-wrap {
+    overflow-x: auto; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: var(--shadow);
+  }
+  th, td { padding: 11px 16px; text-align: left; border-top: 1px solid var(--line); }
+  thead th {
+    border-top: 0; font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 500;
+  }
+  td:not(:first-child) { font-variant-numeric: tabular-nums; }
+  tbody tr td:first-child { font-weight: 500; }
+
+  .callout {
+    background: var(--accent-soft); border: 1px solid var(--accent);
+    border-radius: 10px; padding: 14px 18px; margin: 0 0 20px;
+    font-size: 13.5px; color: var(--ink);
+  }
+  .callout b { color: var(--accent); }
+  .callout.warn { background: var(--active-soft); border-color: var(--active); }
+  .callout.warn b { color: var(--active); }
+
+  footer {
+    margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--line);
+    font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--ink-3);
+  }
+  @media (max-width: 620px) {
+    .row { grid-template-columns: 1fr; gap: 7px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">AI Influencer Studio</div>
+    <h1>Control Board</h1>
+    <p class="sub">Live build status for the automated content pipeline — what is running, what is queued, and the decisions still blocking the next stage.</p>
+    <div class="stamp">Updated 14 Sep 2026 · Asia/Jerusalem</div>
+  </header>
+
+  <div class="tiles">
+    <div class="tile t-done"><div class="n">29</div><div class="lab">Shipped</div></div>
+    <div class="tile t-active"><div class="n">2</div><div class="lab">In progress</div></div>
+    <div class="tile t-queued"><div class="n">32</div><div class="lab">Queued</div></div>
+    <div class="tile t-blocked"><div class="n">5</div><div class="lab">Blocked on you</div></div>
+  </div>
+
+  <div class="meter">
+    <div class="meter-top"><span>Overall build progress</span><span>29 / 68 · 43%</span></div>
+    <div class="bar">
+      <i style="width:43%;background:var(--done)"></i>
+      <i style="width:3%;background:var(--active)"></i>
+      <i style="width:7.3%;background:var(--blocked)"></i>
+    </div>
+  </div>
+
+  <div class="callout" style="margin-top:22px">
+    <b>Since 27 Aug:</b> Persona strategy moved from the single "Berlin" concept below to a 3-persona portfolio (Wellness / Luxury Traveler / Niche) — <b>Ivy Vale</b>, the wellness persona, is live and generating. The Telegram approval loop (Phase 08) is now built and running, plus capabilities beyond its original scope: real data tools and sandboxed code execution from chat. Details below; the Berlin brief further down is kept for history and hasn't been rewritten for Ivy Vale yet.
+  </div>
+
+  <!-- ─── PIPELINE ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>The daily pipeline</h2></div>
+    <p class="sec-note">The target flow, end to end. Every stage runs unattended except one — approval stays human, in Telegram, with room to fine-tune per platform before anything publishes.</p>
+    <div class="flow">
+      <div class="flow-inner">
+        <div class="step">
+          <div class="who">Agent 1 · daily</div>
+          <div class="what">Scout the niche</div>
+          <div class="how">Pulls top-performing posts per platform, separately, on a schedule.</div>
+        </div>
+        <div class="step">
+          <div class="who">Agent 1 · output</div>
+          <div class="what">Performance report</div>
+          <div class="how">Transcripts, on-screen text, keyframes and a ranked read of what is working.</div>
+        </div>
+        <div class="step">
+          <div class="who">Agent 2 · triggered</div>
+          <div class="what">Plan the content</div>
+          <div class="how">Report lands → agent plans the week's mix: how many reels, stories, statics.</div>
+        </div>
+        <div class="step">
+          <div class="who">Agent 2 · output</div>
+          <div class="what">Build prompts</div>
+          <div class="how">Generation prompts per asset, matched to the persona and the platform format.</div>
+        </div>
+        <div class="step">
+          <div class="who">Studio</div>
+          <div class="what">Generate &amp; assemble</div>
+          <div class="how">Higgsfield renders the shots, ElevenLabs speaks them, FFmpeg cuts them to music.</div>
+        </div>
+        <div class="step">
+          <div class="who">Agent 3 · gate</div>
+          <div class="what">Quality check</div>
+          <div class="how">Every clip screened against a fixed defect list. Failures regenerate instead of reaching you.</div>
+        </div>
+        <div class="step human">
+          <div class="who">You · Telegram</div>
+          <div class="what">Review &amp; tune</div>
+          <div class="how">Only clips that passed. Adjust per platform by chat, then approve.</div>
+        </div>
+        <div class="step">
+          <div class="who">Buffer</div>
+          <div class="what">Publish &amp; confirm</div>
+          <div class="how">Scheduled post goes live; confirmation returns to Telegram.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 1 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 01</span><h2>Foundation</h2></div>
+    <p class="sec-note">Everything needed before a line of product code matters: the repo, the deploy path, the database, and the guardrails that keep changes safe.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">App running locally</div><div class="desc">React 18 + Vite 5, dependencies installed, vulnerabilities triaged.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">GitHub repo + branch protection</div><div class="desc">PR-only merges to <code>main</code>, with a required <code>lint-and-build</code> status check.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">CI pipeline</div><div class="desc">GitHub Actions runs lint and build on every PR and push.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Vercel dev + production</div><div class="desc">Branch previews on <code>dev</code>, production deploy from <code>main</code>.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Image assets optimized</div><div class="desc">511 MB of source imagery re-encoded; 119 code references updated.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Engineering principles documented</div><div class="desc">Karpathy + Ponytail + rtk rules written into <code>CLAUDE.md</code>.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Supabase database</div><div class="desc">Six tables live: influencers, media, activity logs, dispatches, fan interactions, telegram chats.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Database migration pipeline</div><div class="desc">GitHub Actions deploys migrations on merge. Broke on 13 Sep after two migrations were applied directly to Supabase without matching repo files — every push failed with "remote migration versions not found." Fixed by backfilling the missing files.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Expense tracking</div><div class="desc">Live <code>expenses</code> table, API and dashboard page; updates whenever a tool is added or cancelled.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Every DB entity documented</div><div class="desc"><code>docs/db-schema.md</code> — every Supabase table and column, plus what's still localStorage-only, checked against the live schema.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 2 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 02</span><h2>Publishing rails</h2></div>
+    <p class="sec-note">The path an approved post travels to reach an audience. Buffer is connected and answering; the accounts on the other end do not exist yet.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Postiz + Railway decommissioned</div><div class="desc">Self-hosted scheduler abandoned after resource failures; code, database columns and costs all removed.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Buffer connected</div><div class="desc">Scoped API key live, organization verified: <code>My Organization</code>.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Buffer health check</div><div class="desc"><code>/api/buffer/ping</code> confirms auth and lists connected channels.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Draft creation script + workflow</div><div class="desc"><code>agents/dispatch/</code> — creates a Buffer DRAFT (never auto-publishes) and records it in <code>scheduled_dispatches</code>, triggerable from Telegram's Dispatch tab.</div></div></div>
+      <div class="row"><span class="chip c-blocked">You</span><div><div class="title">Create the social accounts</div><div class="desc">Instagram, TikTok, YouTube, Facebook, Pinterest — none exist yet. Blocked on the niche decision.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Connect accounts to Buffer</div><div class="desc">Free plan allows three channels total — see the open decisions below.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">First real scheduled post</div><div class="desc">One post, one platform, end to end, to prove the rail before automating it.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 3 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 03</span><h2>Agent 1 — the scout</h2></div>
+    <p class="sec-note">Runs daily, one platform at a time, and reports back on what is actually performing. The pipeline is built and validated; it needs credentials and a niche to point at.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Scout tool in the repo</div><div class="desc"><code>agents/content-scout/</code> — discovery, download, transcription, on-screen text, keyframes, ranking, runnable as a GitHub Actions workflow or from Telegram's Scout tab.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Environment built</div><div class="desc">Python 3.11, ffmpeg, and all dependencies installed and verified.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Two bugs found and fixed</div><div class="desc">Downloads were arriving without audio; OCR was calling a removed API. Both fixed and pinned.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Validated end to end</div><div class="desc">Two full runs on real videos produced transcripts, keyframes, visual analysis and a finished report.</div></div></div>
+      <div class="row"><span class="chip c-blocked">You</span><div><div class="title">Apify token</div><div class="desc">Account created; the token still needs to reach the <code>APIFY_TOKEN</code> GitHub secret. Free tier covers this volume.</div></div></div>
+      <div class="row"><span class="chip c-blocked">You</span><div><div class="title">YouTube Data API key</div><div class="desc">Free, 10,000 units/day. Needed for YouTube discovery.</div></div></div>
+      <div class="row"><span class="chip c-active">Active</span><div><div class="title">First real niche sweep</div><div class="desc">15–20 videos per platform, producing a genuine pattern instead of single-video tests.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Pinterest + Telegram discovery</div><div class="desc">Neither platform has a module yet; both need building if they stay in scope.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Daily schedule</div><div class="desc">Move from manual runs to an unattended daily job with cross-run deduplication.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Report delivery + trigger</div><div class="desc">Report lands somewhere durable and fires the event Agent 2 listens for.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 4 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 04</span><h2>Agent 2 — the planner</h2></div>
+    <p class="sec-note">Wakes on a finished report, decides the week's content mix, and writes the generation prompts. Nothing here is built yet.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Trigger on report</div><div class="desc">Listens for a completed scout run and starts without being asked.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Content mix planner</div><div class="desc">How many reels, stories and statics per week — see the cadence table below.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Prompt generation</div><div class="desc">Turns report patterns into prompts for the existing generation pipeline.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Persona consistency</div><div class="desc">Higgsfield Soul ID would lock the face across every render — researched, not yet wired in.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Batch generation</div><div class="desc">Render a full week of assets in one pass instead of one at a time.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Reusable persona pipeline</div><div class="desc">Generalize the manual CLI-based process used to build Ivy Vale's images into a repeatable script for the next persona.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 5 · VOICE ─────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 05</span><h2>Voice — ElevenLabs</h2></div>
+    <p class="sec-note">A distinct, reusable voice per influencer. The right tool here is <strong>Voice Design</strong>, which invents a voice from a written description — not voice cloning, which copies a real person and carries consent problems we have no reason to take on.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-blocked">You</span><div><div class="title">Create the ElevenLabs account</div><div class="desc">Free tier gives ~10k credits/month but <strong>no commercial rights</strong>. The entry paid tier (~$5–6/month) adds the commercial licence — required before a single post goes public.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Design the persona voice</div><div class="desc">Written description — age, accent, texture, pace — becomes a saved voice with a permanent ID.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Store the API key</div><div class="desc">Into Vercel environment variables, server-side only, same handling as the Higgsfield and Buffer keys.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Voice ID on the influencer record</div><div class="desc">A <code>voice_id</code> column so every influencer keeps their own voice permanently.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Script-to-speech in the pipeline</div><div class="desc">Agent 2 writes the script; ElevenLabs speaks it; the audio joins the render.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Lip-sync</div><div class="desc">Higgsfield already exposes speech-driven video — the generated audio drives the mouth instead of arriving as a voiceover.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Voice cost tracking</div><div class="desc">Subscription plus per-character usage into the expenses dashboard.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 6 · ASSEMBLY ──────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 06</span><h2>Video assembly</h2></div>
+    <p class="sec-note">The motorcycle clip we pulled apart was a CapCut montage — several shots cut to music. Reproducing that shape needs an edit step, and CapCut cannot provide it: their API exposes AI features only, not editing, and the app itself is manual. <strong>FFmpeg is already installed and covers everything on this list</strong>, so it is where we start; a hosted renderer only earns its cost if templated edits get genuinely complex.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Multi-clip assembly</div><div class="desc">Concatenate several generated shots into one sequence with cut timing.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Music bed + beat timing</div><div class="desc">Cuts land on the beat — the thing that makes montages read as edited rather than stitched. Licensing needs sorting before publishing.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Captions and text overlay</div><div class="desc">Burned-in captions, styled per platform.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Per-platform variants</div><div class="desc">One source cut, re-framed and re-timed for Reels, TikTok, Shorts and feed.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Audio mix</div><div class="desc">Persona voice over the music bed at sane relative levels.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 7 · QA AGENT ──────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 07</span><h2>Agent 3 — the quality gate</h2></div>
+    <p class="sec-note">Screens every clip before it reaches your phone. The point is not taste — it is catching the specific, well-documented ways AI video breaks, so you are reviewing content rather than hunting for six-fingered hands.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Frame sampling</div><div class="desc">Reuse the scout's existing keyframe extraction — the machinery already works.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Defect checklist</div><div class="desc">The fixed list below, applied identically to every clip.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Pass / regenerate / escalate</div><div class="desc">Clean clips pass; known-fixable defects regenerate automatically; ambiguous ones come to you flagged.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Regeneration limit</div><div class="desc">A hard retry cap so a bad prompt cannot silently burn generation credits overnight.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Verdicts logged</div><div class="desc">Every pass and failure written to <code>activity_logs</code>, so recurring defects expose bad prompts. Table and API exist; nothing writes to it yet.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Platform pre-flight</div><div class="desc">Aspect ratio, duration and safe zones checked per platform before the draft is built.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── QA CHECKLIST ────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>What the quality gate looks for</h2></div>
+    <p class="sec-note">Six families of defect, drawn from published research on temporal drift and AI-video detection. These are the failures that make a clip read as fake — and the ones audiences and platforms notice first.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Family</th><th>What breaks</th><th>On failure</th></tr></thead>
+        <tbody>
+          <tr><td>Anatomy</td><td>Finger count and fusion, impossible joint bends, teeth distorting between frames, unnatural blinking, gaze drift</td><td>Regenerate</td></tr>
+          <tr><td>Temporal drift</td><td>Face morphing into a different person mid-clip, objects appearing or vanishing, background warping, frame-to-frame flicker</td><td>Regenerate</td></tr>
+          <tr><td>Identity</td><td>Face no longer matches the persona reference; wardrobe or aesthetic off-brand</td><td>Regenerate</td></tr>
+          <tr><td>Physics</td><td>Hair and fabric moving against the motion, shadows contradicting the light source, missing or wrong reflections</td><td>Flag</td></tr>
+          <tr><td>Text &amp; marks</td><td>Garbled lettering on signs or clothing, accidental brand logos, leftover tool watermarks</td><td>Regenerate</td></tr>
+          <tr><td>Audio</td><td>Lip-sync drift, audio running out of step with picture, wrong emphasis or robotic delivery</td><td>Regenerate</td></tr>
+          <tr><td>Compliance</td><td>Wrong aspect ratio or duration, subject cropped by platform UI, missing AI disclosure, policy-breaking content</td><td>Block</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 8 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 08</span><h2>Approval loop &amp; control bot</h2></div>
+    <p class="sec-note">The one place a human stays in the loop, plus — since 13 Sep — a broader control surface than originally scoped: real conversations with Claude about live data, and sandboxed code execution, both from Telegram.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Telegram bot, live</div><div class="desc">Webhook registered and answering. Runs entirely server-side (Vercel + GitHub Actions) — no laptop needs to be on.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Per-agent tabs</div><div class="desc">Persistent keyboard — 🔍 Scout, 🎨 Generate, 📤 Dispatch, 💬 Chat — each a separate conversation with its own memory and agent-focused system prompt.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Slash commands trigger the three agents</div><div class="desc"><code>/scout</code>, <code>/generate</code>, <code>/dispatch</code> queue the matching GitHub Actions workflow from any tab.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Second authorized user</div><div class="desc"><code>TELEGRAM_ALLOWED_CHAT_IDS</code> — can chat in every tab, but has none of the tools below.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Data read/write tools (owner only)</div><div class="desc">Claude can read and update real influencer/expense/media_asset rows in plain language — "what's Ivy Vale's audience?", "update her voice to X" — never schema or code.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Sandboxed code execution (owner only)</div><div class="desc"><code>run_code</code> — bash/Node on a throwaway GitHub Actions runner, no app secrets exposed, read-only checkout, 5-min timeout, result reported back to Telegram.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">"Typing…" indicator</div><div class="desc">Shown for the whole wait while Chat mode (with tool use) works, so the conversation doesn't look stuck.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Draft previews with image</div><div class="desc">Pending posts currently go through as a text command, not an image+caption preview card.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Approve → publish button</div><div class="desc">Dispatch creates the Buffer draft directly; there's no in-Telegram approve step tying a specific pending post to that action yet.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Publish confirmation round-trip</div><div class="desc">Buffer going live doesn't yet notify back into Telegram.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── SECURITY ────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>Security hardening — 13 Sep</h2></div>
+    <p class="sec-note">Giving the bot more reach (data writes, code execution) meant auditing what that reach could be used for.</p>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">GitHub Actions script injection fixed</div><div class="desc">All 3 agent workflows interpolated untrusted <code>workflow_dispatch</code> inputs directly into shell scripts — a value with shell metacharacters could run arbitrary commands with that job's secrets. Fixed via <code>env:</code> vars everywhere.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Webhook fails closed</div><div class="desc">A missing <code>TELEGRAM_WEBHOOK_SECRET</code> used to mean any request was silently accepted. Now rejected.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Prompt-injection defense</div><div class="desc">The app's read/write API has no auth layer yet, so a planted data field could try to instruct Claude. Owner's system prompt now flags tool output as untrusted data explicitly.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title"><code>run_code</code> containment</div><div class="desc">No app secrets reach that job, checkout is read-only, hard timeout — even if the bot token or webhook secret leaked, blast radius stays bounded.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Auth on <code>api/db/*</code> endpoints</div><div class="desc">No end-user auth system exists yet — the underlying gap the prompt-injection defense above works around rather than closes.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── PHASE 9 ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><span class="idx">PHASE 09</span><h2>Persona &amp; product</h2></div>
+    <p class="sec-note">The influencer herself, the data layer behind her, and the obligations that come with publishing AI-generated people.</p>
+    <div class="callout warn">
+      <b>Superseded:</b> the single-persona "Berlin" brief further down this page reflects the 27 Aug plan. The actual decision that shipped was a <b>3-persona portfolio</b> (Wellness / Luxury Traveler / Niche) — <b>Ivy Vale</b>, a Byron Bay coastal-wellness instructor (Character A), is live: profile, images, and content pillars (Movement, Ritual, Mindset, Product) all set. Kept below for history rather than deleted.
+    </div>
+    <div class="rows">
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Portfolio strategy decided</div><div class="desc">3 personas across distinct niches, sourced from <code>AI_Influencer_Portfolio.docx</code>.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Ivy Vale built and live</div><div class="desc">Profile, generated images (multiple refinement rounds), audience, voice, dream brands, content pillars all set in Supabase.</div></div></div>
+      <div class="row"><span class="chip c-done">Done</span><div><div class="title">Generation prompts audit</div><div class="desc">All three prompt files reviewed against Higgsfield's current lineup. Results in the table further down.</div></div></div>
+      <div class="row"><span class="chip c-blocked">You</span><div><div class="title">In-app Higgsfield generation still broken</div><div class="desc">Browser OAuth rejected with "Forbidden origin" — Higgsfield-side policy, not fixable in our code. Working substitute: the official CLI, run manually or via <code>higgsfield-generate.yml</code>.</div></div></div>
+      <div class="row"><span class="chip c-active">Active</span><div><div class="title">Ivy Vale image refinement</div><div class="desc">Several rounds of correction done (proportions, lip color, aging, mole consistency); paused mid-way by request, to resume later.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Reusable persona-build pipeline</div><div class="desc">Generalize Ivy Vale's manual CLI process into a repeatable script for the next 2 personas.</div></div></div>
+      <div class="row"><span class="chip c-active">Active</span><div><div class="title">Add anti-AI guards to Photo Studio</div><div class="desc">Port the Create path's constraints block so Photo Studio output stops reading as AI-generated.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Add 4:5, 1:1 and 2:3 ratios</div><div class="desc">Instagram feed and Pinterest formats are currently impossible to generate.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">Generation cost tracking</div><div class="desc">Per-render Higgsfield cost into the expenses dashboard once on a paid plan.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">AI disclosure compliance</div><div class="desc">The FTC requires clear disclosure of both AI origin and sponsorship — penalties reach $53,088 per violation. Build it into bios and captions from the first post, not later.</div></div></div>
+      <div class="row"><span class="chip c-queued">Queued</span><div><div class="title">FanView</div><div class="desc">Fan messages, subscriptions and payments — its own design effort, deliberately deferred.</div></div></div>
+    </div>
+  </section>
+
+  <!-- ─── CADENCE ─────────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>Posting cadence by niche</h2></div>
+    <p class="sec-note">What Agent 2 will plan against. Consistent across sources: three to five posts per week is the floor for algorithmic momentum, and daily short-form is the growth setting.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Niche</th><th>Daily short-form</th><th>Weekly long-form</th><th>Sponsored</th><th>Est. monthly @ 75k</th></tr></thead>
+        <tbody>
+          <tr><td>Beauty &amp; skincare</td><td>2–3</td><td>1</td><td>1–2 / week</td><td>$5,000–10,000</td></tr>
+          <tr><td>Fitness &amp; wellness</td><td>2</td><td>1</td><td>1 / week</td><td>$4,000–8,500</td></tr>
+          <tr><td>Tech &amp; productivity</td><td>1</td><td>1–2</td><td>1 / 2 weeks</td><td>$7,000–15,000</td></tr>
+          <tr><td>Finance &amp; investing</td><td>1</td><td>2–3</td><td>1 / 2 weeks</td><td>$9,000–18,000</td></tr>
+          <tr><td>Lifestyle / aesthetic</td><td>1–2</td><td>optional</td><td>1 / week</td><td>$4,000–9,000</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:12px">Revenue bands are published by a competing platform vendor and are unverified — treat them as directional ordering between niches, not as forecasts.</p>
+  </section>
+
+  <!-- ─── DECISIONS ───────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>Decisions made</h2></div>
+    <p class="sec-note">Settled 27 August, still load-bearing except where noted.</p>
+    <div class="decks">
+      <div class="deck settled">
+        <h3>Mainstream only</h3>
+        <p>The brand is built for Instagram, TikTok and YouTube under their actual content policies. No adult-platform track. This keeps Buffer viable, keeps brand deals available, and takes account-suspension risk off the table.</p>
+        <div class="ask">Locked. Revisit deliberately, not by drift.</div>
+      </div>
+      <div class="deck settled">
+        <h3>Three platforms to start</h3>
+        <p>Buffer's free plan caps at three channels and ten scheduled posts. We prove the pipeline inside that limit and only pay once it demonstrably works.</p>
+        <div class="ask">Pinterest deferred until the video platforms are proven.</div>
+      </div>
+      <div class="deck settled">
+        <h3>Telegram does all three jobs</h3>
+        <p>Research source, approval and fine-tuning channel, and — because Buffer caps at three — a publishing destination in its own right for the influencer's own channel.</p>
+        <div class="ask">Bot is live; publishing-destination role still ahead.</div>
+      </div>
+      <div class="deck settled">
+        <h3>Build order</h3>
+        <p>Prompt audit first (needs nothing from you), then the real niche sweep, then the niche decision, then the database wiring.</p>
+        <div class="ask">Prompt audit complete — findings below.</div>
+      </div>
+      <div class="deck">
+        <h3>Single persona → 3-persona portfolio</h3>
+        <p>Superseded 13 Sep: rather than one Berlin-anchored persona, the strategy became a 3-persona portfolio spanning Wellness, Luxury Traveler, and a Niche pick, sourced from a dedicated portfolio research doc.</p>
+        <div class="ask">Ivy Vale (Wellness) built first; the other two not yet started.</div>
+      </div>
+      <div class="deck settled">
+        <h3>Bot capability scope: data + code, owner only</h3>
+        <p>13 Sep: extended the bot beyond triggering workflows to reading/writing live app data and running sandboxed code — deliberately scoped to the owner's chat_id only, never the second authorized user.</p>
+        <div class="ask">Locked in with the containment measures in the Security section above.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── LINK RISK ───────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>The one risk in the revenue model</h2></div>
+    <p class="sec-note">Worth being precise about, because it decides whether the accounts survive. The pattern that gets creators banned is not a subscription link — it is a link to <em>adult</em> content. TikTok's guidelines prohibit adult-platform promotion outright, and Instagram has restricted bio links for creators it associates with adult platforms.</p>
+    <div class="decks">
+      <div class="deck settled">
+        <h3>Low risk — where we are now</h3>
+        <p>SFW lifestyle content on social, SFW exclusive content on Fanvue. This is structurally the same as a Patreon or Substack link, and it is a normal creator business.</p>
+        <div class="ask">Stay here and the accounts are not the thing at risk.</div>
+      </div>
+      <div class="deck">
+        <h3>High risk — the line not to cross</h3>
+        <p>SFW on social funnelling to NSFW on Fanvue is exactly the pattern platforms detect and act on. A link aggregator between the two is what the industry reaches for, but it mitigates rather than solves — the chain is still detectable.</p>
+        <div class="ask">If the Fanvue side ever goes NSFW, the social strategy needs rebuilding first.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── PERSONA BRIEF (HISTORICAL) ──────── -->
+  <section class="section">
+    <div class="sec-head"><h2>The Berlin brief <span style="font-weight:400;color:var(--ink-3);font-size:14px">— historical, superseded by the 3-persona portfolio above</span></h2></div>
+    <p class="sec-note">Nearly every AI influencer clusters in Miami, Dubai and LA: tanned, glossy, luxury-coded. Berlin is the opposite register — layered, monochrome, thrifted, effortful-looking only by accident. That distance is the point, and it happens to suit the app's realism prompts, which fight glamour and reward found light and real skin.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Dimension</th><th>Use</th><th>Avoid</th></tr></thead>
+        <tbody>
+          <tr><td>Vibe</td><td>Street, Cozy, Candid</td><td>Luxury</td></tr>
+          <tr><td>Wardrobe</td><td>Streetwear, Minimal, Cozy</td><td>Glam</td></tr>
+          <tr><td>Locations</td><td>Coffee shop, city street, park, bedroom, mirror selfie, gym</td><td>Beach — Berlin has lakes, not coastline</td></tr>
+          <tr><td>Content pillars</td><td>City life · fitness · personal moments</td><td>Aspirational wealth signalling</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sec-note" style="margin-top:12px">Luxury and Glam are the two presets that would collapse this persona back into the crowd. They stay off.</p>
+  </section>
+
+  <!-- ─── PROMPT AUDIT ────────────────────── -->
+  <section class="section">
+    <div class="sec-head"><h2>Prompt audit — 27 Aug</h2></div>
+    <p class="sec-note">Every generation prompt in the app, checked against what Higgsfield currently offers and against itself. The prompt engineering is genuinely strong — tiered backstory context, scene-lighting compatibility guards, personality driving both pose and wardrobe. Four things need attention.</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Check</th><th>Finding</th><th>Verdict</th></tr></thead>
+        <tbody>
+          <tr><td>Model IDs valid</td><td><code>gpt_image_2</code>, <code>soul_2</code>, <code>nano_banana_2</code>, <code>seedance_2_0</code> — all still offered. GPT Image 2 is actively promoted by Higgsfield.</td><td>Healthy</td></tr>
+          <tr><td>Stale markers</td><td>No TODO, FIXME or dead references anywhere in the three prompt files.</td><td>Healthy</td></tr>
+          <tr><td>Aspect ratio wiring</td><td>9:16 and 16:9 get genuinely different framing instructions — not one crop rotated.</td><td>Healthy</td></tr>
+          <tr><td><strong>Anti-AI guards missing</strong></td><td>The Create path blocks plastic skin, perfect symmetry, uncanny glow and retouching explicitly. <strong>Photo Studio emits none of it</strong> — its assembler carries no constraints block at all.</td><td>Fix</td></tr>
+          <tr><td><strong>Aspect ratios incomplete</strong></td><td>Only 9:16 and 16:9 exist. Instagram feed performs best at <strong>4:5</strong>; 1:1 and Pinterest's 2:3 are also unavailable.</td><td>Fix</td></tr>
+          <tr><td>Newer models available</td><td>Seedance 2.5, Seedream 5.0, Nano Banana Pro and Kling 3.0 have all shipped since this code was written.</td><td>Evaluate</td></tr>
+          <tr><td>Soul ID not wired</td><td>Persona consistency still runs on per-generation reference images, which drift. Soul ID trains the identity once.</td><td>Evaluate</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    Live document · redeployed to this same link as the build progresses.
+  </footer>
+
+</div>
+
+</body></html>
