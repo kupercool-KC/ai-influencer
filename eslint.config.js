@@ -11,7 +11,7 @@ export default [
   js.configs.recommended,
   {
     // Plain Node scripts (agent/CI tooling) — no browser globals, no React.
-    files: ['agents/**/*.{js,mjs}'],
+    files: ['agents/**/*.{js,mjs}', '.github/**/*.{js,mjs}'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',
