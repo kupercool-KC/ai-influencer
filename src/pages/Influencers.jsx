@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useInfluencers, useBrandDeals, generateId } from '../store'
+import { useInfluencers, useBrandDeals, generateId, pullInfluencerFromDB } from '../store'
 import ImageGrid from '../components/ImageGrid'
 import MasonryGrid from '../components/MasonryGrid'
 import Lightbox from '../components/Lightbox'
@@ -5784,6 +5784,7 @@ export default function Influencers() {
   const [showNew,setShowNew]=useState(false)
   const [lightbox,setLightbox]=useState(null)
   const [ctxMenu,setCtxMenu]=useState(null)
+  const [syncMsg,setSyncMsg]=useState(null) // {id, text, isError} — transient banner for Sync from Cloud
   const [renameId,setRenameId]=useState(null)
   const [renameVal,setRenameVal]=useState('')
   const [mobileView,setMobileView]=useState('list')
@@ -5878,6 +5879,27 @@ export default function Influencers() {
 
   function upd(id,updates){ setInfluencers(prev=>prev.map(i=>i.id===id?{...i,...updates}:i)) }
 
+  // Pulls this influencer's record back from Supabase and merges it into local
+  // state — the counterpart to the automatic push. Needed because the app only
+  // ever pushes to the database, never reads from it; a record updated outside
+  // the browser (e.g. the persona pipeline writing a new mainImage) would
+  // otherwise never reach the UI, and would eventually get overwritten by the
+  // next local save. Merges rather than replaces, so nothing typed locally
+  // since the cloud write is lost.
+  async function syncFromCloud(id) {
+    const name = influencers.find(i=>i.id===id)?.name || 'influencer'
+    setSyncMsg({id, text:`Syncing ${name} from cloud…`, isError:false})
+    try {
+      const cloudData = await pullInfluencerFromDB(id)
+      upd(id, cloudData)
+      setSyncMsg({id, text:`${name} synced from cloud.`, isError:false})
+    } catch (e) {
+      setSyncMsg({id, text:`Sync failed: ${e.message}`, isError:true})
+    } finally {
+      setTimeout(()=>setSyncMsg(m=>m?.id===id?null:m), 4000)
+    }
+  }
+
   function addToHistory(id, entry) {
     setInfluencers(prev => prev.map(i => {
       if (i.id !== id) return i
@@ -5930,9 +5952,17 @@ export default function Influencers() {
           items={[
             {label:'Rename',       action:()=>{setSelectedId(ctxMenu.id);setRenameId(ctxMenu.id);setRenameVal(ctxMenu.inf.name)}},
             {label:'Duplicate',    action:()=>dup(ctxMenu.id)},
+            {label:'Sync from Cloud', action:()=>syncFromCloud(ctxMenu.id)},
             {label:'Delete',color:'#FF6B6B',action:()=>del(ctxMenu.id)},
           ]}
         />
+      )}
+      {syncMsg && (
+        <div style={{
+          position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', zIndex:1000,
+          padding:'10px 18px', borderRadius:10, fontSize:13, fontWeight:600, color:'#fff',
+          background: syncMsg.isError ? '#DC2626' : '#111827', boxShadow:'0 4px 16px rgba(0,0,0,0.25)',
+        }}>{syncMsg.text}</div>
       )}
 
       {/* ── Dark sidebar — hidden on mobile when viewing detail */}

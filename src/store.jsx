@@ -67,6 +67,22 @@ function deleteInfluencerFromDB(id) {
     .catch(e => console.warn(`DB delete failed for influencer ${id}`, e))
 }
 
+// Pulls one influencer's `data` back from Supabase — the counterpart to the
+// fire-and-forget push in syncInfluencerToDB. localStorage is still the source
+// of truth the app reads from day-to-day; this is for the case where a record
+// was updated directly in Supabase (e.g. by an offline pipeline / CLI run) and
+// needs to be pulled into the browser explicitly. Never runs automatically —
+// callers merge the result into local state themselves, so nothing is
+// silently overwritten.
+export async function pullInfluencerFromDB(id) {
+  const r = await fetch('/api/db/influencers')
+  if (!r.ok) throw new Error(`Failed to reach the database (${r.status})`)
+  const { influencers } = await r.json()
+  const row = influencers?.find(i => i.id === id)
+  if (!row) throw new Error('No matching record found in the database')
+  return row.data
+}
+
 function readIds() {
   try { return JSON.parse(localStorage.getItem(IDS_KEY) || 'null') } catch { return null }
 }
