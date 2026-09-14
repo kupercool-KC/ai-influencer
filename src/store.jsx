@@ -83,6 +83,24 @@ export async function pullInfluencerFromDB(id) {
   return row.data
 }
 
+// Finds Supabase records that don't exist in this browser's localStorage at
+// all — the case pullInfluencerFromDB can't handle, since there's no local
+// row to merge into. This happens whenever a persona was created or written
+// from a different browser/session (an offline pipeline, a different
+// machine): the sync is one-way (local → cloud) today, so a record can exist
+// in Supabase, but if the browser that pushed it never persists, the local
+// copy is gone while Supabase still has it. Returns the full `data` payloads
+// of every cloud row whose id isn't already in `existingIds`.
+export async function pullMissingInfluencersFromDB(existingIds) {
+  const r = await fetch('/api/db/influencers')
+  if (!r.ok) throw new Error(`Failed to reach the database (${r.status})`)
+  const { influencers } = await r.json()
+  const existing = new Set(existingIds)
+  return (influencers || [])
+    .filter(row => !existing.has(row.id))
+    .map(row => row.data)
+}
+
 function readIds() {
   try { return JSON.parse(localStorage.getItem(IDS_KEY) || 'null') } catch { return null }
 }

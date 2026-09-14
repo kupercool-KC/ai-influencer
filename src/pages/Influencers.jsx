@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useInfluencers, useBrandDeals, generateId, pullInfluencerFromDB } from '../store'
+import { useInfluencers, useBrandDeals, generateId, pullInfluencerFromDB, pullMissingInfluencersFromDB } from '../store'
 import ImageGrid from '../components/ImageGrid'
 import MasonryGrid from '../components/MasonryGrid'
 import Lightbox from '../components/Lightbox'
@@ -5900,6 +5900,30 @@ export default function Influencers() {
     }
   }
 
+  // Imports any persona that exists in Supabase but not in this browser at
+  // all — the case Sync from Cloud can't reach, since there's no local row
+  // to right-click. This happens whenever a persona was created from a
+  // different browser/session (an offline pipeline, a different machine):
+  // sync is one-way (local → cloud), so if that other browser's storage is
+  // gone, the persona only survives in Supabase until someone imports it.
+  async function importMissingFromCloud() {
+    setSyncMsg({id:'__import__', text:'Checking cloud for missing personas…', isError:false})
+    try {
+      const missing = await pullMissingInfluencersFromDB(influencers.map(i=>i.id))
+      if (missing.length === 0) {
+        setSyncMsg({id:'__import__', text:'Nothing to import — already up to date.', isError:false})
+      } else {
+        setInfluencers(prev=>[...prev, ...missing])
+        const names = missing.map(m=>m.name).join(', ')
+        setSyncMsg({id:'__import__', text:`Imported ${missing.length} from cloud: ${names}`, isError:false})
+      }
+    } catch (e) {
+      setSyncMsg({id:'__import__', text:`Import failed: ${e.message}`, isError:true})
+    } finally {
+      setTimeout(()=>setSyncMsg(m=>m?.id==='__import__'?null:m), 5000)
+    }
+  }
+
   function addToHistory(id, entry) {
     setInfluencers(prev => prev.map(i => {
       if (i.id !== id) return i
@@ -5975,6 +5999,10 @@ export default function Influencers() {
         <div style={{padding:'16px 16px 8px',display:'flex',alignItems:'center',justifyContent:'space-between',borderBottom:`1px solid ${SD.border}`,minWidth:160}}>
           <span style={{fontSize:11,fontWeight:700,color:SD.dim,textTransform:'uppercase',letterSpacing:'0.6px'}}>Influencers</span>
           <div style={{display:'flex',gap:5,alignItems:'center'}}>
+            <button onClick={importMissingFromCloud} title="Import personas that exist in the database but not in this browser" style={{width:26,height:26,borderRadius:7,background:'rgba(255,255,255,0.12)',color:SD.text,fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',transition:'background 0.15s'}}
+              onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.2)'}}
+              onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.12)'}}
+            >⇩</button>
             <button onClick={()=>setShowNew(true)} style={{width:26,height:26,borderRadius:7,background:'rgba(255,255,255,0.12)',color:SD.text,fontSize:16,display:'flex',alignItems:'center',justifyContent:'center',transition:'background 0.15s'}}
               onMouseEnter={e=>{e.currentTarget.style.background='rgba(255,255,255,0.2)'}}
               onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.12)'}}
