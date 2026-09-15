@@ -1,43 +1,58 @@
 // Telegram bot webhook — the single entry point for the "control everything
 // from Telegram" agent. Handles:
-//   - /start, /menu        -> shows the persistent 4-tab keyboard (Scout/
-//     Generate/Dispatch/Chat) — each tab is a separate Claude conversation
-//     with its own memory, switched by tapping a button (not a command).
-//   - /scout <niche>       -> triggers content-scout.yml (works from any tab)
-//   - /generate <prompt>   -> triggers higgsfield-generate.yml (any tab)
-//   - /dispatch <channel> | <image_url> | <caption> -> triggers buffer-dispatch.yml (any tab)
-//   - anything else (free text) -> forwarded to Claude in the chat's current
-//     tab, with per-tab history kept in Supabase (telegram_chats.histories).
+//   - /start, /menu        -> shows the persistent 5-tab keyboard (Scout/
+//     Generate/Dispatch/Code/Chat) — each tab is a separate Claude
+//     conversation with its own memory, switched by tapping a button (not a
+//     command). This is the DM experience.
+//   - Forum-group Topics    -> the same 5 agents, but as real Telegram
+//     Topics instead of buttons. A topic's agent is auto-detected from its
+//     name when it's created (see forum_topic_created below), or set/fixed
+//     with `/mode <scout|generate|dispatch|code|chat>` sent inside it. Each
+//     topic is its own conversation (own history), keyed by (chat_id,
+//     thread_id) in Supabase — see the 2026-09-15 migration
+//     telegram_chats_add_thread_id.
+//   - /scout <niche>       -> triggers content-scout.yml (any tab/topic)
+//   - /generate <prompt>   -> triggers higgsfield-generate.yml (any tab/topic)
+//   - /dispatch <channel> | <image_url> | <caption> -> triggers buffer-dispatch.yml (any tab/topic)
+//   - anything else (free text) -> forwarded to Claude in the current tab/
+//     topic's agent, with history kept in Supabase (telegram_chats.histories).
 //     This is a fresh Claude call each time, not literally this coding
 //     session — it has no memory of anything done outside this bot.
-//     Only the owner's chat gets tool access (read/write app data via
-//     lib/telegramTools.js — never schema/migrations/code); a second
-//     allowed user can only talk.
+//     Only the owner (by Telegram user id, not chat id — see isOwner())
+//     gets tool access (read/write app data + propose_code_change via
+//     lib/telegramTools.js — never schema/migrations); a second allowed
+//     user can only talk.
 //
-// Security: only responds to chat IDs listed in TELEGRAM_ALLOWED_CHAT_IDS
+// Security: only responds in chats listed in TELEGRAM_ALLOWED_CHAT_IDS
 // (comma-separated — TELEGRAM_OWNER_CHAT_ID alone still works for a single
-// user), and only accepts requests carrying the secret token Telegram was
+// DM user; a Forum group's own chat_id must be added here too once it
+// exists), and only accepts requests carrying the secret token Telegram was
 // configured to send (X-Telegram-Bot-Api-Secret-Token) — anyone else's
 // message is silently ignored, since this bot can spend real money
-// (Higgsfield credits, API calls, GitHub Actions minutes).
+// (Higgsfield credits, API calls, GitHub Actions minutes) and, via
+// propose_code_change, open real pull requests.
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-import { sendMessage, answerCallbackQuery, tabsKeyboard, TAB_LABELS, withTyping } from '../../lib/telegramClient.js'
+import { sendMessage, answerCallbackQuery, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool } from '../../lib/telegramTools.js'
 
-// Only the bot owner gets data read/write tool access (Supabase rows via
-// scoped tools — never schema changes). A second authorized user
-// (TELEGRAM_ALLOWED_CHAT_IDS) can chat, but Claude has no tools in their
-// conversation, so it can only talk, never touch the database.
-function isOwner(chatId) {
-  return String(chatId) === String(process.env.TELEGRAM_OWNER_CHAT_ID || '')
+const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
+
+// Owner-ness is about WHO is talking, not WHICH chat — a group's chat_id is
+// never the owner's personal id, but msg.from.id is the same real Telegram
+// user regardless of whether they're DMing the bot or posting in a Forum
+// topic. In a private chat, from.id and chat.id are the same value anyway,
+// so this is a strict generalization of the old chat_id check.
+function isOwner(fromId) {
+  return String(fromId) === String(process.env.TELEGRAM_OWNER_CHAT_ID || '')
 }
 
 const MENU_TEXT = {
   scout: '*🔍 Scout tab*\nDescribe what you want researched, or send:\n`/scout <niche> | <platforms> | <limit> | <days>`\ne.g. `/scout coastal wellness yoga | tiktok,instagram | 15 | 90`\n(platforms/limit/days optional — default tiktok,instagram,youtube / 15 / 90)\n\nThis tab remembers only Scout conversation — switch tabs any time with the buttons below.',
   generate: '*🎨 Generate tab*\nDescribe the image you want, or send:\n`/generate <prompt>`\nUses gpt_image_2, 9:16, high, 2k by default.\n\nThis tab remembers only Generation conversation.',
   dispatch: '*📤 Dispatch tab*\nDescribe what to post, or send:\n`/dispatch <channel_id> | <image_url> | <caption>`\nCreates a Buffer DRAFT (never auto-publishes).\n\nThis tab remembers only Dispatch conversation.',
+  code: '*👨‍💻 Code tab*\nDescribe what you want built/changed/fixed in the repo — I\'ll open a pull request for you to review and merge, never push straight to main.\n\nThis tab remembers only Code conversation.',
   chat: '*💬 Chat tab*\nGeneral project conversation — just type.\n\nThis tab remembers only Chat conversation.',
 }
 
@@ -54,31 +69,57 @@ the exact \`/generate <prompt>\` command they should send.`,
   dispatch: `You are specifically in "Dispatch" mode: help the user plan a Buffer draft post (channel,
 caption, timing). If they describe an idea in plain language, propose the exact
 \`/dispatch <channel_id> | <image_url> | <caption>\` command they should send.`,
+  code: `You are specifically in "Code" mode: the user wants something built, changed, or fixed in the
+repo, or a doc updated. Clarify scope if it's vague, then call propose_code_change yourself with a
+clear task description — don't just describe the change in chat and stop there.`,
   chat: `You are in general "Chat" mode: open-ended project conversation, no specific agent focus.`,
 }
 
-async function getMode(chatId) {
-  const db = supabaseAdmin()
-  const { data } = await db.from('telegram_chats').select('mode').eq('chat_id', String(chatId)).maybeSingle()
-  return data?.mode || 'chat'
+// A topic's name is set once by whoever creates it, so this only needs to be
+// forgiving, not exhaustive — substring match against the lowercased,
+// emoji-stripped name. Order matters: check more specific words first.
+function detectModeFromTopicName(name) {
+  const clean = (name || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ')
+  if (/\bscout\b/.test(clean)) return 'scout'
+  if (/\bgenerat/.test(clean)) return 'generate'
+  if (/\bdispatch/.test(clean)) return 'dispatch'
+  if (/\bcode\b/.test(clean)) return 'code'
+  if (/\bchat\b|\bgeneral\b/.test(clean)) return 'chat'
+  return null
 }
 
-async function setMode(chatId, mode) {
+async function getRow(chatId, threadId) {
   const db = supabaseAdmin()
-  await db.from('telegram_chats').upsert({ chat_id: String(chatId), mode, updated_at: new Date().toISOString() })
+  const { data } = await db.from('telegram_chats').select('mode, histories, topic_name')
+    .eq('chat_id', String(chatId)).eq('thread_id', threadId).maybeSingle()
+  return data
 }
 
-async function getHistory(chatId, mode) {
-  const db = supabaseAdmin()
-  const { data } = await db.from('telegram_chats').select('histories').eq('chat_id', String(chatId)).maybeSingle()
-  return data?.histories?.[mode] || []
+async function getMode(chatId, threadId) {
+  const row = await getRow(chatId, threadId)
+  return row?.mode || 'chat'
 }
 
-async function saveHistory(chatId, mode, messages) {
+async function setMode(chatId, threadId, mode, topicName) {
   const db = supabaseAdmin()
-  const { data } = await db.from('telegram_chats').select('histories').eq('chat_id', String(chatId)).maybeSingle()
-  const histories = { ...(data?.histories || {}), [mode]: messages }
-  await db.from('telegram_chats').upsert({ chat_id: String(chatId), histories, updated_at: new Date().toISOString() })
+  const patch = { chat_id: String(chatId), thread_id: threadId, mode, updated_at: new Date().toISOString() }
+  if (topicName !== undefined) patch.topic_name = topicName
+  await db.from('telegram_chats').upsert(patch, { onConflict: 'chat_id,thread_id' })
+}
+
+async function getHistory(chatId, threadId, mode) {
+  const row = await getRow(chatId, threadId)
+  return row?.histories?.[mode] || []
+}
+
+async function saveHistory(chatId, threadId, mode, messages) {
+  const db = supabaseAdmin()
+  const row = await getRow(chatId, threadId)
+  const histories = { ...(row?.histories || {}), [mode]: messages }
+  await db.from('telegram_chats').upsert(
+    { chat_id: String(chatId), thread_id: threadId, histories, updated_at: new Date().toISOString() },
+    { onConflict: 'chat_id,thread_id' },
+  )
 }
 
 const PROJECT_CONTEXT = `You are the project assistant for "AI Influencer Studio" — a React+Vite app
@@ -98,7 +139,7 @@ Pipeline (all in this one repo):
   pre-approved OAuth client, which works). The CLI/workflow path is the working substitute.
 - Dispatch (agents/dispatch/, .github/workflows/buffer-dispatch.yml) — creates Buffer DRAFT
   posts (never auto-publishes — content is still reviewed and published by hand).
-- You (this Telegram bot) — one menu button per agent, plus this Chat mode.
+- You (this Telegram bot) — one tab/topic per agent, plus Code and Chat.
 
 Data model: Supabase tables influencers, expenses, media_assets (source of truth for
 generated media, with version history via is_current), scheduled_dispatches, activity_logs,
@@ -147,15 +188,14 @@ async function callAnthropic(system, messages, tools) {
   return upstream.json()
 }
 
-async function askClaude(chatId, mode, userText) {
+async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const owner = isOwner(chatId)
   const system = `${PROJECT_CONTEXT}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? TOOLS : undefined
 
-  const history = await getHistory(chatId, mode)
+  const history = await getHistory(chatId, threadId, mode)
   let messages = [...history, { role: 'user', content: userText }].slice(-40)
 
   // Tool-use loop: Claude may call a tool, we run it and feed the result
@@ -170,7 +210,7 @@ async function askClaude(chatId, mode, userText) {
 
     if (data.stop_reason !== 'tool_use') {
       const reply = content.find(b => b.type === 'text')?.text || '(no reply)'
-      await saveHistory(chatId, mode, messages)
+      await saveHistory(chatId, threadId, mode, messages)
       return reply
     }
 
@@ -187,7 +227,7 @@ async function askClaude(chatId, mode, userText) {
     messages = [...messages, { role: 'user', content: toolResults }]
   }
 
-  await saveHistory(chatId, mode, messages)
+  await saveHistory(chatId, threadId, mode, messages)
   return 'Hit the tool-call limit for this message — try breaking it into smaller steps.'
 }
 
@@ -221,7 +261,7 @@ export default async function handler(req, res) {
       // still has the old buttons on screen (sent before this deploy) would
       // otherwise get silently ignored when tapped. Honor it the same as a
       // tab switch, and always answerCallbackQuery so Telegram clears the
-      // button's loading spinner.
+      // button's loading spinner. This path is DM-only (no topics here).
       const cq = update.callback_query
       const cbChatId = cq.message.chat.id
       if (allowed.size && !allowed.has(String(cbChatId))) {
@@ -230,7 +270,7 @@ export default async function handler(req, res) {
       }
       const mode = (cq.data || '').replace('menu:', '')
       if (MENU_TEXT[mode]) {
-        await setMode(cbChatId, mode)
+        await setMode(cbChatId, '', mode)
         await answerCallbackQuery(cq.id, '')
         await sendMessage(cbChatId, MENU_TEXT[mode], { reply_markup: tabsKeyboard() })
       } else {
@@ -240,25 +280,80 @@ export default async function handler(req, res) {
     }
 
     const msg = update.message
-    if (!msg || !msg.text) return res.status(200).end()
+    if (!msg) return res.status(200).end()
     const chatId = msg.chat.id
+    const fromId = msg.from?.id
 
     if (allowed.size && !allowed.has(String(chatId))) {
-      // Not an allowed user — never trigger anything, never spend money, don't even reply.
+      // Not an allowed chat — never trigger anything, never spend money, don't even reply.
+      // For a new Forum group this means: add its chat_id to TELEGRAM_ALLOWED_CHAT_IDS first.
       return res.status(200).end()
     }
 
+    const isGroup = msg.chat.type === 'group' || msg.chat.type === 'supergroup'
+    const threadId = (isGroup && msg.is_topic_message && msg.message_thread_id) ? String(msg.message_thread_id) : ''
+    const owner = isOwner(fromId)
+
+    // A topic was just created — auto-detect its agent from the name Telegram
+    // reports, so the split genuinely follows each topic's own context
+    // instead of needing a manual step every time.
+    if (msg.forum_topic_created) {
+      const newThreadId = String(msg.message_thread_id || msg.message_id)
+      const name = msg.forum_topic_created.name || ''
+      const detected = detectModeFromTopicName(name)
+      const mode = detected || 'chat'
+      await setMode(chatId, newThreadId, mode, name)
+      const text = detected
+        ? `✅ This topic is wired to *${mode}*.`
+        : `⚠️ Couldn't tell which agent "${name}" should be from its name — defaulting to *Chat*.\nSend \`/mode <${KNOWN_MODES.join('|')}>\` here to fix it.`
+      await sendMessage(chatId, text, threadOpts(newThreadId))
+      return res.status(200).end()
+    }
+
+    // Topic renamed — re-detect in case the new name makes it clear (e.g. the
+    // user fixes a topic that landed on the "couldn't tell" default above).
+    if (msg.forum_topic_edited) {
+      const editThreadId = String(msg.message_thread_id || '')
+      if (editThreadId) {
+        const name = msg.forum_topic_edited.name
+        const detected = name ? detectModeFromTopicName(name) : null
+        if (detected) {
+          await setMode(chatId, editThreadId, detected, name)
+          await sendMessage(chatId, `✅ Re-wired to *${detected}*.`, threadOpts(editThreadId))
+        }
+      }
+      return res.status(200).end()
+    }
+
+    if (!msg.text) return res.status(200).end()
     const text = msg.text.trim()
 
-    if (text === '/start' || text === '/menu') {
-      await setMode(chatId, 'chat')
+    if (text.startsWith('/mode')) {
+      if (!threadId) {
+        await sendMessage(chatId, 'This only applies inside a Forum topic — in a DM, switch tabs with the buttons below.', { reply_markup: tabsKeyboard() })
+        return res.status(200).end()
+      }
+      const requested = text.replace('/mode', '').trim().toLowerCase()
+      if (!KNOWN_MODES.includes(requested)) {
+        await sendMessage(chatId, `Usage: \`/mode <${KNOWN_MODES.join('|')}>\``, threadOpts(threadId))
+        return res.status(200).end()
+      }
+      await setMode(chatId, threadId, requested)
+      await sendMessage(chatId, `✅ This topic is now wired to *${requested}*.`, threadOpts(threadId))
+      return res.status(200).end()
+    }
+
+    // Button-tab switching is a DM-only concept — in a group/topic, the
+    // topic itself is the tab, so these labels are just plain text there.
+    if (!threadId && (text === '/start' || text === '/menu')) {
+      await setMode(chatId, '', 'chat')
       await sendMessage(chatId, 'Pick a tab below — each one is a separate conversation with its own agent and memory. Or just type to chat:', { reply_markup: tabsKeyboard() })
       return res.status(200).end()
     }
 
-    if (LABEL_TO_TAB[text]) {
+    if (!threadId && LABEL_TO_TAB[text]) {
       const mode = LABEL_TO_TAB[text]
-      await setMode(chatId, mode)
+      await setMode(chatId, '', mode)
       await sendMessage(chatId, MENU_TEXT[mode], { reply_markup: tabsKeyboard() })
       return res.status(200).end()
     }
@@ -266,37 +361,37 @@ export default async function handler(req, res) {
     if (text.startsWith('/scout')) {
       const args = parsePipes(text.replace('/scout', ''))
       const [niche, platforms = 'tiktok,instagram,youtube', per_platform_limit = '15', since_days = '90'] = args
-      if (!niche) { await sendMessage(chatId, MENU_TEXT.scout); return res.status(200).end() }
+      if (!niche) { await sendMessage(chatId, MENU_TEXT.scout, threadOpts(threadId)); return res.status(200).end() }
       await dispatchWorkflow('content-scout.yml', { niche, platforms, per_platform_limit, since_days })
-      await sendMessage(chatId, `Scout run queued for "${niche}". Track it: ${runsUrl()}`)
+      await sendMessage(chatId, `Scout run queued for "${niche}". Track it: ${runsUrl()}`, threadOpts(threadId))
       return res.status(200).end()
     }
 
     if (text.startsWith('/generate')) {
       const prompt = text.replace('/generate', '').trim()
-      if (!prompt) { await sendMessage(chatId, MENU_TEXT.generate); return res.status(200).end() }
+      if (!prompt) { await sendMessage(chatId, MENU_TEXT.generate, threadOpts(threadId)); return res.status(200).end() }
       await dispatchWorkflow('higgsfield-generate.yml', {
         model: 'gpt_image_2', prompt, aspect_ratio: '9:16', quality: 'high', resolution: '2k',
       })
-      await sendMessage(chatId, `Generation queued. Track it: ${runsUrl()}`)
+      await sendMessage(chatId, `Generation queued. Track it: ${runsUrl()}`, threadOpts(threadId))
       return res.status(200).end()
     }
 
     if (text.startsWith('/dispatch')) {
       const args = parsePipes(text.replace('/dispatch', ''))
       const [channel_id, image_url, caption] = args
-      if (!channel_id || !image_url || !caption) { await sendMessage(chatId, MENU_TEXT.dispatch); return res.status(200).end() }
+      if (!channel_id || !image_url || !caption) { await sendMessage(chatId, MENU_TEXT.dispatch, threadOpts(threadId)); return res.status(200).end() }
       await dispatchWorkflow('buffer-dispatch.yml', { channel_id, image_url, caption })
-      await sendMessage(chatId, `Draft queued for Buffer channel ${channel_id}. Track it: ${runsUrl()}`)
+      await sendMessage(chatId, `Draft queued for Buffer channel ${channel_id}. Track it: ${runsUrl()}`, threadOpts(threadId))
       return res.status(200).end()
     }
 
-    // Anything else -> whichever tab this chat is currently on. Chat mode
-    // (especially with tool use) can take a few seconds, so show "typing…"
-    // for the whole wait instead of the chat looking stuck.
-    const mode = await getMode(chatId)
-    const reply = await withTyping(chatId, () => askClaude(chatId, mode, text))
-    await sendMessage(chatId, reply)
+    // Anything else -> whichever agent this tab/topic is currently wired to.
+    // Chat mode (especially with tool use) can take a few seconds, so show
+    // "typing…" for the whole wait instead of the chat looking stuck.
+    const mode = await getMode(chatId, threadId)
+    const reply = await withTyping(chatId, () => askClaude(chatId, threadId, mode, text, owner))
+    await sendMessage(chatId, reply, threadOpts(threadId))
     return res.status(200).end()
   } catch (e) {
     try { await sendMessage(update.message?.chat?.id || process.env.TELEGRAM_OWNER_CHAT_ID, `Error: ${e.message}`) } catch { /* best effort */ }
