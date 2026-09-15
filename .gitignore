@@ -16,7 +16,8 @@ dist
 *.log
 npm-debug.log*
 .env*
-docs/personas/*/references/
+docs/personas/*/references/*
+!docs/personas/*/references/anchor.png
 agents/content-scout/data/
 agents/content-scout/.venv/
 /content_scout/
