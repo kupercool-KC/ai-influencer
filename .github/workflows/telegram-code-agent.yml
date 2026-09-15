@@ -1,0 +1,126 @@
+name: Telegram code agent (owner only, PR-gated)
+
+# Lets the Telegram bot's owner chat ask for real code changes / doc updates / new
+# systems — the same kind of work done in an interactive Claude Code session — from
+# a phone conversation. Triggered by the `propose_code_change` tool in
+# lib/telegramTools.js, which only the bot owner's chat gets (see isOwner() in
+# api/telegram/webhook.js).
+#
+# The gate that makes this safe: this job NEVER pushes to main. It always works on
+# a fresh branch and opens a pull request; a human (the owner) still has to read the
+# diff, watch CI, and merge it — same as every other change in this repo this
+# session. If that gate is ever removed, this comment block is the thing to update.
+#
+# Needs repo secrets: ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_OWNER_CHAT_ID
+# (all three already exist — reused from run-code.yml / update-control-board.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "What to build/change/update, in the user's own words"
+        required: true
+      label:
+        description: "Short label, echoed back in the Telegram result message"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Branch name
+        id: branch
+        run: |
+          SLUG=$(echo "${{ inputs.label }}" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//' | cut -c1-40)
+          if [ -z "$SLUG" ]; then SLUG="request-$(date +%s)"; fi
+          echo "name=telegram/$SLUG" >> "$GITHUB_OUTPUT"
+
+      - name: Run Claude Code
+        id: agent
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          base_branch: main
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+            --json-schema '{"type":"object","properties":{"ok":{"type":"boolean"},"pr_url":{"type":"string"},"pr_number":{"type":"number"},"summary":{"type":"string"},"error":{"type":"string"}},"required":["ok","summary"]}'
+          prompt: |
+            You are working headlessly in the "AI Influencer Studio" repo (kupercool-KC/ai-influencer),
+            triggered by a request the project owner sent through the Telegram bot's Chat tab. There is
+            no human watching this run live — you must finish the whole job yourself, including opening
+            the pull request, and never wait for input.
+
+            THE REQUEST (the owner's own words, verbatim):
+            ---
+            ${{ inputs.task }}
+            ---
+
+            Hard rules, not suggestions:
+            1. NEVER commit or push to `main` directly. Create and work on branch
+               `${{ steps.branch.outputs.name }}` (git checkout -b), commit there, and
+               `git push -u origin ${{ steps.branch.outputs.name }}`.
+            2. Once pushed, open a pull request against `main` yourself with `gh pr create`
+               (GH_TOKEN is already set in your shell). Write a real PR title and a body explaining
+               what changed and why, ending with the line:
+               🤖 Generated with [Claude Code](https://claude.com/claude-code)
+            3. End every commit message with:
+               Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+            4. Do NOT merge the PR. Do NOT delete branches. Do NOT touch database schema/migrations
+               (Supabase) even if asked — say so in your final summary instead and stop.
+            5. Match the codebase's existing conventions (see CLAUDE.md and agents/README.md if
+               present) rather than introducing new patterns.
+            6. If the request is too vague to act on safely, or turns out to need something you
+               don't have here (secrets, external service access), do NOT guess — set ok:false,
+               explain what's missing in "error", and skip opening a PR.
+            7. When you are done (PR opened, or you've stopped per rule 6), you MUST return the
+               final structured JSON output matching the schema: ok, pr_url, pr_number, summary
+               (a few plain sentences a non-technical person will read on their phone — no jargon,
+               no markdown), and error if applicable. This is your last action.
+
+      - name: Report result to Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+          IN_LABEL: ${{ inputs.label }}
+          AGENT_OUTPUT: ${{ steps.agent.outputs.structured_output }}
+          AGENT_CONCLUSION: ${{ steps.agent.outcome }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_CHAT_ID" ]; then
+            echo "TELEGRAM_BOT_TOKEN / TELEGRAM_OWNER_CHAT_ID secrets not set — result not delivered."
+            echo "$AGENT_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$AGENT_CONCLUSION" != "success" ] || [ -z "$AGENT_OUTPUT" ]; then
+            TEXT="⚠️ Code agent run failed${IN_LABEL:+ — $IN_LABEL}. Nothing was opened. Check the run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          else
+            OK=$(echo "$AGENT_OUTPUT" | jq -r '.ok // false')
+            SUMMARY=$(echo "$AGENT_OUTPUT" | jq -r '.summary // "(no summary)"')
+            if [ "$OK" = "true" ]; then
+              PR_URL=$(echo "$AGENT_OUTPUT" | jq -r '.pr_url // ""')
+              TEXT="✅ Code agent finished${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"
+              if [ -n "$PR_URL" ]; then TEXT="$TEXT"$'\n\n'"Review & merge: $PR_URL"; fi
+            else
+              ERROR=$(echo "$AGENT_OUTPUT" | jq -r '.error // "no reason given"')
+              TEXT="⚠️ Code agent stopped without opening a PR${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"$'\n\n'"Reason: $ERROR"
+            fi
+          fi
+
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" \
+                  '{chat_id:$chat_id, text:$text}')"
