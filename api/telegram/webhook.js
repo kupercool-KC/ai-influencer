@@ -156,17 +156,15 @@ async function saveHistory(chatId, threadId, mode, messages) {
 const PROJECT_CONTEXT = `You are the project assistant for "AI Influencer Studio" — a React+Vite app
 (repo: kupercool-KC/ai-influencer) for building and running AI influencer personas end to end.
 
-Current personas: Kayla, Camila, Olivia (established — reference/example personas, not in active
-use), and Ivy Vale (the one actually in active use — a Byron Bay coastal-wellness yoga instructor
-persona, Character A "The Wellness Aesthetic" from the project's 3-persona portfolio strategy).
+Only Ivy Vale (Byron Bay coastal-wellness yoga instructor, Character A "The Wellness Aesthetic" from
+the project's 3-persona portfolio strategy) is in active use — Kayla/Camila/Olivia are reference/
+example personas only. Exact current status of every persona (which have a trained identity, etc.)
+is injected fresh below on every call — never rely on this paragraph for that, it's not kept current.
 
-Ivy Vale has a trained Higgsfield Soul 2.0 identity (id 850935eb-8238-4507-9df5-a28cefe9a461,
-docs/personas/Ivy Vale/persona.json) — every earlier generated image of her came out with a subtly
-different face because the prompt builder demoted her reference photo to a "geometry only" hint and
-took identity from text instead; that's fixed (src/utils/higgsfieldGenerate.js, the photo always
-wins on identity now). Generating her with the Soul: always pass BOTH the Soul id AND one image
-reference together (text2image_soul_v2, custom_reference_id + image_references) — the Soul alone
-loses accessories/exact freckles/even hair colour, since it's a learned model of the person, not the
+Technique fact that IS stable (how Higgsfield Soul identity works here, not a status): a persona
+with a trained Soul must always be generated with BOTH the Soul id AND one image reference together
+(text2image_soul_v2, custom_reference_id + image_references) — the Soul alone loses accessories,
+exact freckle placement, and even hair colour, since it's a learned model of the person, not the
 photo. A Generate agent (planned, not built yet) will turn Scout's weekly recommendations into a
 week-ahead content calendar for Ivy specifically, gated on approval before any generation runs.
 
@@ -258,6 +256,25 @@ function choicesKeyboard(options) {
   return { inline_keyboard: options.map(o => [{ text: o, callback_data: `choice:${Buffer.from(o).subarray(0, 55).toString('utf8')}` }]) }
 }
 
+// Queried fresh on every call rather than described in prose, specifically
+// because prose like this is exactly what went stale today (this file still
+// described the old, buggy identity behavior hours after it was fixed). Any
+// fact that lives in the database belongs here, not in PROJECT_CONTEXT.
+async function livePersonaSummary() {
+  const db = supabaseAdmin()
+  const { data, error } = await db.from('influencers').select('id, name, data')
+  if (error || !data?.length) return '(live persona data unavailable right now)'
+  return data
+    .map(row => {
+      const d = row.data || {}
+      const identity = d.soulId
+        ? `trained Soul (${d.soulModel || 'soul'}, id ${d.soulId}, trained ${d.soulTrainedAt || 'date unknown'}) — use custom_reference_id + one image_reference together`
+        : 'no trained Soul — identity may drift between generations, treat with the usual reference-image care'
+      return `- ${row.name} (${row.id}): ${identity}`
+    })
+    .join('\n')
+}
+
 async function callAnthropic(system, messages, tools) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   const body = { model: 'claude-sonnet-4-5', max_tokens: 1024, system, messages }
@@ -274,7 +291,8 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const system = `${PROJECT_CONTEXT}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
+  const personaSummary = await livePersonaSummary()
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
