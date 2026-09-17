@@ -1,0 +1,26 @@
+{
+  "slug": "ivy-vale",
+  "name": "Ivy Vale",
+  "soul": {
+    "id": "850935eb-8238-4507-9df5-a28cefe9a461",
+    "name": "IvyVale",
+    "model": "soul_2",
+    "job_type": "text2image_soul_v2",
+    "trained_at": "2026-09-17",
+    "training_images": [
+      "soul-training/01-front-smile.jpg",
+      "soul-training/02-indoor-warm.jpg",
+      "soul-training/03-laugh-outdoor.jpg",
+      "soul-training/04-profile-overcast.jpg",
+      "soul-training/05-threequarter-right-golden.jpg",
+      "soul-training/06-above-dusk.jpg",
+      "soul-training/07-closeup-front.jpg",
+      "soul-training/08-threequarter-left.jpg"
+    ]
+  },
+  "anchor": "references/anchor.png",
+  "usage": {
+    "note": "The Soul alone holds the face but NOT accessories, exact freckle placement, or reliably the hair color — it is a learned model of the person, not of the photo. Always pass BOTH custom_reference_id and one image_reference, and restate hair/eye colour in the prompt.",
+    "verified_2026_09_17": "Soul-only generations came back with brown hair and no necklace; Soul + one image reference came back correct."
+  }
+}
