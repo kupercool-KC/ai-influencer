@@ -737,9 +737,13 @@ export async function generateThreeImages({ prompts, aspectRatio = '9:16', model
   function buildFaceInstruction(imgTag) {
     if (faceNote)
       return `${imgTag}: use specifically "${faceNote}" from this reference.${hasDesc ? ' Use the text description for all other identity attributes.' : ''}`
-    return hasDesc
-      ? `${imgTag} is a facial geometry reference — match the face proportions (eye spacing, jaw width, nose bridge, face shape) but defer to the text description for skin tone, hair, eye color, and identity. Ignore ${imgTag}'s clothing, background, and lighting.`
-      : `${imgTag} is the appearance reference — faithfully recreate this person's face, skin tone, hair, eye color, and overall look exactly as shown.`
+    // The photo always wins on identity. An earlier version demoted it to a
+    // "facial geometry reference" whenever the persona had a physicalDesc, and
+    // told the model to take skin tone / hair / eye colour / identity from the
+    // text instead — which is under-specified by nature, so every render
+    // re-invented the face. That was the actual cause of "every angle looks
+    // like a slightly different person".
+    return `${imgTag} is the appearance reference — faithfully recreate this person's face, skin tone, hair, eye color, and overall look exactly as shown. Ignore ${imgTag}'s clothing, background, and lighting.`
   }
 
   // Build style instruction — user note takes priority; falls back to full extraction list
