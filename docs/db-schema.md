@@ -96,11 +96,18 @@ API: `api/db/fan-interactions.js` (new). **No UI consumes this yet** — exists 
 ### `telegram_chats`
 | column | type | notes |
 |---|---|---|
-| chat_id | text (PK) | |
-| messages | jsonb | Anthropic-format message array, last 40 kept |
+| chat_id | text (PK, composite w/ thread_id) | a DM's chat_id, or a Forum group's chat_id |
+| thread_id | text (PK, composite w/ chat_id) | `''` for a DM / a group's own General topic; a Forum topic's `message_thread_id` otherwise |
+| mode | text | which agent this row is wired to: scout \| generate \| dispatch \| code \| chat |
+| topic_name | text, nullable | the Topic's name as Telegram reported it (DM rows leave this null) |
+| histories | jsonb | `{mode: Anthropic-format message array}`, last 40 kept per mode |
+| messages | jsonb | legacy, unused since the mode/histories split — left in place, not written to |
 | updated_at | timestamptz | |
 
-Written directly by `api/telegram/webhook.js` — powers the bot's "Chat" mode continuity.
+Written directly by `api/telegram/webhook.js`. A DM's 4-then-5 "tabs" (button keyboard) and a
+Forum group's Topics are the same mechanism underneath — each (chat_id, thread_id) pair is an
+independent conversation with its own mode and history. A Topic's mode is auto-detected from its
+name when created (`forum_topic_created`); `/mode <name>` inside a topic overrides it.
 
 ## localStorage-only (never synced to Supabase)
 
