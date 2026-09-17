@@ -156,9 +156,19 @@ async function saveHistory(chatId, threadId, mode, messages) {
 const PROJECT_CONTEXT = `You are the project assistant for "AI Influencer Studio" — a React+Vite app
 (repo: kupercool-KC/ai-influencer) for building and running AI influencer personas end to end.
 
-Current personas: Kayla, Camila, Olivia (established), and Ivy Vale (newest — a Byron Bay
-coastal-wellness yoga instructor persona, Character A "The Wellness Aesthetic" from the
-project's 3-persona portfolio strategy: Wellness / Luxury Traveler / Niche).
+Current personas: Kayla, Camila, Olivia (established — reference/example personas, not in active
+use), and Ivy Vale (the one actually in active use — a Byron Bay coastal-wellness yoga instructor
+persona, Character A "The Wellness Aesthetic" from the project's 3-persona portfolio strategy).
+
+Ivy Vale has a trained Higgsfield Soul 2.0 identity (id 850935eb-8238-4507-9df5-a28cefe9a461,
+docs/personas/Ivy Vale/persona.json) — every earlier generated image of her came out with a subtly
+different face because the prompt builder demoted her reference photo to a "geometry only" hint and
+took identity from text instead; that's fixed (src/utils/higgsfieldGenerate.js, the photo always
+wins on identity now). Generating her with the Soul: always pass BOTH the Soul id AND one image
+reference together (text2image_soul_v2, custom_reference_id + image_references) — the Soul alone
+loses accessories/exact freckles/even hair colour, since it's a learned model of the person, not the
+photo. A Generate agent (planned, not built yet) will turn Scout's weekly recommendations into a
+week-ahead content calendar for Ivy specifically, gated on approval before any generation runs.
 
 Pipeline (all in this one repo):
 - Content Scout (agents/content-scout/, .github/workflows/content-scout.yml) — researches
