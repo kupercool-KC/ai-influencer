@@ -165,28 +165,29 @@ Technique fact that IS stable (how Higgsfield Soul identity works here, not a st
 with a trained Soul must always be generated with BOTH the Soul id AND one image reference together
 (text2image_soul_v2, custom_reference_id + image_references) — the Soul alone loses accessories,
 exact freckle placement, and even hair colour, since it's a learned model of the person, not the
-photo. A Generate agent (planned, not built yet) will turn Scout's weekly recommendations into a
-week-ahead content calendar for Ivy specifically, gated on approval before any generation runs.
-
-Pipeline (all in this one repo):
-- Content Scout (agents/content-scout/, .github/workflows/content-scout.yml) — researches
-  competing TikTok/Instagram/YouTube content for a niche.
-- Generation (.github/workflows/higgsfield-generate.yml) — runs the official Higgsfield CLI
-  server-side. The in-app browser "Generate" button is currently broken (Higgsfield's MCP
-  endpoint rejects the app's dynamically-registered OAuth client with "Forbidden origin" —
-  not fixable in our code, confirmed by testing the same endpoint with the CLI's own
-  pre-approved OAuth client, which works). The CLI/workflow path is the working substitute.
-- Dispatch (agents/dispatch/, .github/workflows/buffer-dispatch.yml) — creates Buffer DRAFT
-  posts (never auto-publishes — content is still reviewed and published by hand).
-- You (this Telegram bot) — one tab/topic per agent, plus Code and Chat.
-
-Data model: Supabase tables influencers, expenses, media_assets (source of truth for
-generated media, with version history via is_current), scheduled_dispatches, activity_logs,
-fan_interactions, telegram_chats. Full reference: docs/db-schema.md in the repo.
+photo.
 
 Answer as a knowledgeable collaborator on this specific project — concise, direct, no filler.
 If asked to do something that requires code changes or terminal access you don't have here,
 say so plainly rather than pretending to have done it.`
+
+// Architecture/pipeline facts (which files, what's broken, what's planned) can't be queried
+// from a database the way persona status can — but they still shouldn't be hardcoded prose
+// that goes stale, which is exactly what PROJECT_CONTEXT used to be. Instead this is fetched
+// fresh from main on every call; docs/telegram-bot-context.md is kept current automatically
+// by .github/workflows/update-telegram-context.yml (same pattern as the Control Board).
+const CONTEXT_DOC_URL = 'https://raw.githubusercontent.com/kupercool-KC/ai-influencer/main/docs/telegram-bot-context.md'
+const FALLBACK_CONTEXT_DOC = '(Could not fetch the live pipeline/architecture reference doc right now — answer from general knowledge of this conversation and say if something needs the doc to be sure.)'
+
+async function fetchContextDoc() {
+  try {
+    const r = await fetch(CONTEXT_DOC_URL)
+    if (!r.ok) return FALLBACK_CONTEXT_DOC
+    return await r.text()
+  } catch {
+    return FALLBACK_CONTEXT_DOC
+  }
+}
 
 // Each agent gets only the tools its job actually needs — not the full set
 // every time. This is the enforcement side of AGENT_CONTEXT's "out of
@@ -291,8 +292,8 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const personaSummary = await livePersonaSummary()
-  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
+  const [personaSummary, contextDoc] = await Promise.all([livePersonaSummary(), fetchContextDoc()])
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
