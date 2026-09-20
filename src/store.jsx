@@ -59,7 +59,19 @@ function syncInfluencerToDB(inf) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: inf.id, name: inf.name, gender: inf.gender, niche: inf.niche, data: inf }),
   })
-    .then(r => r.ok ? r.json() : null)
+    .then(async r => {
+      // 410 = this id was deliberately deleted (tombstoned) — this browser's
+      // local copy is a zombie from before the deletion. Forget it locally
+      // too, so it stops trying to resurrect it on every future page load.
+      if (r.status === 410) {
+        localStorage.removeItem(`${INF_PREFIX}${inf.id}`)
+        const ids = readIds()
+        if (ids) writeIds(ids.filter(id => id !== inf.id))
+        _lastSyncedJSON.delete(inf.id)
+        return null
+      }
+      return r.ok ? r.json() : null
+    })
     .then(result => {
       // The API refuses to let a stale local copy overwrite pipeline-owned
       // fields (mainImage, soulId, etc. — see api/db/influencers.js) and
