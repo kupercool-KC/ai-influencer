@@ -58,7 +58,27 @@ function syncInfluencerToDB(inf) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: inf.id, name: inf.name, gender: inf.gender, niche: inf.niche, data: inf }),
-  }).catch(e => console.warn(`DB sync failed for influencer "${inf.name}"`, e))
+  })
+    .then(r => r.ok ? r.json() : null)
+    .then(result => {
+      // The API refuses to let a stale local copy overwrite pipeline-owned
+      // fields (mainImage, soulId, etc. — see api/db/influencers.js) and
+      // reports which ones it protected. Patch localStorage straight away
+      // so this browser self-heals to match the DB on its own, rather than
+      // silently disagreeing with it until someone happens to hit Sync from
+      // Cloud. Doesn't touch live React state — a reload (or Sync from
+      // Cloud) picks it up — but it can never push the stale value back.
+      if (result?.protectedFields?.length) {
+        const current = readInfluencer(inf.id)
+        if (current) {
+          const healed = { ...current }
+          for (const field of result.protectedFields) healed[field] = result.influencer.data[field]
+          localStorage.setItem(`${INF_PREFIX}${inf.id}`, JSON.stringify(healed))
+          _lastSyncedJSON.set(inf.id, JSON.stringify(healed))
+        }
+      }
+    })
+    .catch(e => console.warn(`DB sync failed for influencer "${inf.name}"`, e))
 }
 
 function deleteInfluencerFromDB(id) {
