@@ -36,6 +36,18 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'id and name are required' })
     }
 
+    // Same root cause as the field-protection below, one layer up: a browser
+    // whose localStorage still has a persona that was deliberately deleted
+    // resurrects the whole row on its next autosave (src/store.jsx:160),
+    // since a plain upsert doesn't know the id was ever removed on purpose.
+    // A tombstone in deleted_influencers makes that deletion durable —
+    // undoable only by removing the tombstone directly, never by a stale
+    // client push.
+    const { data: tombstoned } = await db.from('deleted_influencers').select('id').eq('id', id).maybeSingle()
+    if (tombstoned) {
+      return res.status(410).json({ error: 'This influencer was deleted and should not be recreated automatically.', deleted: true })
+    }
+
     const { data: existing } = await db.from('influencers').select('data').eq('id', id).maybeSingle()
     const incoming = { ...(data || {}) }
     const protectedFields = []
@@ -63,6 +75,9 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: 'id is required' })
     const { error } = await db.from('influencers').delete().eq('id', id)
     if (error) return res.status(500).json({ error: error.message })
+    // Tombstone so no browser's stale local copy can bring it back — see
+    // the matching check in the POST handler above.
+    await db.from('deleted_influencers').upsert({ id })
     return res.status(200).json({ ok: true })
   }
 
