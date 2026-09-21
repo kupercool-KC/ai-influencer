@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update:
@@ -34,14 +35,37 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node .github/scripts/update-telegram-context.mjs
 
-      - name: Commit if changed
+      # main is a protected branch (PR + the lint-and-build check required) —
+      # a direct `git push` here is rejected outright (GH006), which is
+      # exactly what this workflow did on every run since it was added —
+      # never actually updated the doc, just generated a failure email each
+      # time. Branch + PR + wait-for-check + merge keeps this unattended.
+      - name: Commit to a branch if changed
+        id: commit
         run: |
           git config user.name "telegram-context-bot"
           git config user.email "actions@users.noreply.github.com"
           git add docs/telegram-bot-context.md
           if git diff --cached --quiet; then
             echo "No change — nothing to commit."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "Auto-update Telegram bot context [skip ci]"
-            git push
+            BRANCH="auto/telegram-context-$(date -u +%Y%m%d%H%M%S)"
+            git checkout -b "$BRANCH"
+            git commit -m "Auto-update Telegram bot context"
+            git push -u origin "$BRANCH"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Open PR, wait for checks, merge
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --head "${{ steps.commit.outputs.branch }}" --base main \
+            --title "Auto-update Telegram bot context" \
+            --body "Automated — see .github/workflows/update-telegram-context.yml"
+          PR_NUM=$(gh pr view "${{ steps.commit.outputs.branch }}" --json number -q .number)
+          gh pr checks "$PR_NUM" --watch --fail-fast
+          gh pr merge "$PR_NUM" --merge --delete-branch

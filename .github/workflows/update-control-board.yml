@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update:
@@ -49,7 +50,13 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: node .github/scripts/update-control-board.mjs
 
-      - name: Commit if changed
+      # main is a protected branch (PR + the lint-and-build check required) —
+      # a direct `git push` here is rejected outright (GH006). This failed
+      # silently-ish (a GitHub email each time, easy to miss) on every run
+      # since the protection was added, so the board never actually updated.
+      # Branch + PR + wait-for-check + merge keeps this fully unattended
+      # while still going through the same gate every other change does.
+      - name: Commit to a branch if changed
         if: steps.gate.outputs.run == 'true'
         id: commit
         run: |
@@ -59,10 +66,27 @@ jobs:
           if git diff --cached --quiet; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "Auto-update Control Board [skip ci]"
-            git push
+            BRANCH="auto/control-board-$(date -u +%Y%m%d%H%M%S)"
+            git checkout -b "$BRANCH"
+            git commit -m "Auto-update Control Board"
+            git push -u origin "$BRANCH"
             echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Open PR, wait for checks, merge
+        if: steps.gate.outputs.run == 'true' && steps.commit.outputs.changed == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create --head "${{ steps.commit.outputs.branch }}" --base main \
+            --title "Auto-update Control Board" \
+            --body "Automated — see .github/workflows/update-control-board.yml"
+          PR_NUM=$(gh pr view "${{ steps.commit.outputs.branch }}" --json number -q .number)
+          echo "num=$PR_NUM" >> "$GITHUB_OUTPUT"
+          gh pr checks "$PR_NUM" --watch --fail-fast
+          gh pr merge "$PR_NUM" --merge --delete-branch
 
       - name: Notify Telegram
         if: steps.gate.outputs.run == 'true' && steps.commit.outputs.changed == 'true'
@@ -72,4 +96,4 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             -d chat_id="${TELEGRAM_OWNER_CHAT_ID}" \
-            -d text="📋 Control Board auto-updated: https://kupercool-kc.github.io/ai-influencer/control-board.html"
+            -d text="📋 Control Board auto-updated (PR #${{ steps.pr.outputs.num }}): https://kupercool-kc.github.io/ai-influencer/control-board.html"
