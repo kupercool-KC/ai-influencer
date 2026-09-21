@@ -151,6 +151,23 @@ composite_score     = min-max normalized within the pool, [0, 1]
 
 ## Known limitations (v1)
 
+- **Instagram accounts behind a "Restricted profile" / age gate cannot be scraped at all —
+  by anyone, including paid enterprise providers.** Confirmed 2026-09-21 across four
+  independent methods (this project's browser tool, yt-dlp, Apify's `automation-lab/instagram-scraper`,
+  and a fresh browser session) all failing identically on the same account. This isn't a bug
+  in `platforms/instagram.py` or an Apify schema drift — Instagram's own official actor
+  (`apify/instagram-post-scraper`) has open, unresolved issues reporting the exact same
+  `"error": "Restricted profile", "isRestrictedProfile": true` response, and Apify's own docs
+  state private/age-restricted accounts "cannot be scraped as they are not publicly
+  accessible." A community actor once claimed to handle 18+ accounts
+  (`social-media-scraper/instagram-reel-scraper`, "incl. Age restricted Accounts") but is now
+  deprecated — the only way it worked was a real logged-in session cookie, which carries
+  genuine account-ban risk (industry research: ~15-30%/year for automated accounts vs <0.5%/year
+  for official API use) and is a Meta ToS violation regardless of whether the scraped data is
+  public (Meta has issued DMCA takedowns against scraper library authors). **Workaround:
+  TikTok has no equivalent login wall for public videos and is the primary inspiration source
+  for this reason** — Instagram discovery in this pipeline only works for ordinary,
+  non-gated accounts.
 - **Facebook is out of scope** — flagged as the unreliable weak link in the original scraper
   research (no free, complete, reliable path found for competitor video content).
 - **TikTok's native subtitles aren't wired up yet.** The Apify actor's output includes
