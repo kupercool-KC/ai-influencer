@@ -88,8 +88,14 @@ let updated = data.content?.[0]?.text?.trim() || ''
 updated = updated.replace(/^```(?:markdown|md)?\n/, '').replace(/\n```$/, '')
 
 if (!updated.startsWith('<!--')) {
+  // Dump enough of the raw response to actually diagnose this from the Actions log next
+  // time — a 2026-09-21 run failed here with an empty `updated` and nothing else logged,
+  // which wasn't enough to tell whether the API returned an empty content array, a non-text
+  // block, or something else.
   console.error('Model response did not look like the expected doc — leaving it untouched.')
-  console.error(updated.slice(0, 500))
+  console.error('stop_reason:', data.stop_reason)
+  console.error('content block types:', (data.content || []).map(b => b.type))
+  console.error('first 500 chars:', updated.slice(0, 500))
   process.exit(1)
 }
 
