@@ -1,0 +1,50 @@
+name: Scout test single video
+
+# On-demand diagnostic: runs scout -> analyze -> plan on ONE specific Instagram post/reel
+# URL (not an account) and prints every intermediate result to the log — the scraped
+# metadata, the visual analysis, and the final generation prompt + caption. Deliberately
+# stops there: no Higgsfield call, no Buffer draft. For checking the pipeline against a
+# specific video before trusting it in the unattended daily pipeline.
+#
+# Needs repo secret: ANTHROPIC_API_KEY (same value already used by ivy-daily-content.yml).
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: "Full Instagram post/reel URL to test"
+        required: true
+      persona_dir:
+        description: "Path to docs/personas/<Name>/, relative to repo root"
+        default: "docs/personas/Ivy Vale"
+        required: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: agents/content-scout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run test-video
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IN_VIDEO_URL: ${{ inputs.video_url }}
+          IN_PERSONA_DIR: ${{ inputs.persona_dir }}
+        run: |
+          python -m content_scout.cli test-video \
+            --url "$IN_VIDEO_URL" \
+            --persona-dir "../../$IN_PERSONA_DIR"

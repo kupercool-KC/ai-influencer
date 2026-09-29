@@ -8,17 +8,24 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
 from content_scout import pipeline, storage
 from content_scout.config import load_settings
+from content_scout.media.download import download_video
+from content_scout.media.frames import cleanup_raw_frames, dedup_frames, persist_keyframes, sample_frames, select_keyframes
+from content_scout.models import ScoredVideo, new_brief
 from content_scout.persona_content import generate_daily_plan, write_content_plan
 from content_scout.platforms.base import KNOWN_PLATFORMS
+from content_scout.platforms.instagram import discover_single_url
 from content_scout.report.render import assemble_final_report
 from content_scout.report.weekly import build_weekly_summary
 from content_scout.utils.logging import get_logger
+from content_scout.visual.auto_analyze import analyze_video
+from content_scout.visual.stub import write_stub
 from content_scout.visual import stub as visual_stub
 from content_scout.visual.auto_analyze import analyze_and_fill
 
@@ -185,6 +192,72 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_test_video(args: argparse.Namespace) -> int:
+    """One-off diagnostic: run scout -> analyze -> plan on a single, explicitly-given
+    Instagram post/reel URL (not an account) and print every intermediate result —
+    the scraped metadata, the visual analysis, and the final generation prompt +
+    caption. Deliberately stops there: no Higgsfield call, no Buffer draft. For
+    verifying the pipeline against one specific video before trusting it unattended."""
+    settings = load_settings()
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
+        return 1
+
+    persona_dir = Path(args.persona_dir)
+    if not (persona_dir / "persona.json").exists():
+        print(f"Error: no persona.json found under {persona_dir}", file=sys.stderr)
+        return 1
+
+    print(f"--- Fetching {args.url} ---")
+    raw = discover_single_url(args.url)
+    if raw is None:
+        print("Error: no video found at that URL (image-only post, or the page didn't load — "
+              "check for an Instagram login wall).", file=sys.stderr)
+        return 1
+    print(f"Author: @{raw.author_handle}")
+    print(f"Caption: {raw.caption!r}")
+    print(f"Hashtags: {raw.hashtags}")
+    print(f"Posted: {raw.posted_at.isoformat()}")
+    print(f"Likes: {raw.likes}  Comments: {raw.comments}  (completeness: {raw.data_completeness})")
+
+    video_dir = settings.data_dir / "adhoc" / raw.video_id
+    scored = ScoredVideo(
+        raw=raw, engagement_rate=0.0, views_per_day=0.0, recency_weight=1.0,
+        raw_score=0.0, composite_score=0.0, rank_within_platform=1,
+    )
+    brief = new_brief(scored, run_id="adhoc")
+
+    print("\n--- Downloading video ---")
+    video_path, method = download_video(direct_media_url=raw.direct_media_url, page_url=raw.url, video_dir=video_dir)
+    print(f"Downloaded via {method}: {video_path}")
+
+    print("\n--- Sampling + selecting keyframes ---")
+    raw_frames = sample_frames(video_path, work_dir=video_dir / "raw_frames")
+    deduped = dedup_frames(raw_frames)
+    selected = select_keyframes(deduped, n=6)
+    keyframes = persist_keyframes(selected, frames_dir=video_dir / "frames")
+    cleanup_raw_frames(video_dir / "raw_frames")
+    print(f"{len(raw_frames)} sampled -> {len(deduped)} after dedup -> {len(keyframes)} keyframes kept")
+
+    brief_path = video_dir / "brief.json"
+    write_stub(brief, keyframes, video_dir)
+    storage.write_brief(brief_path, brief)
+
+    print("\n--- Visual analysis (Claude) ---")
+    analysis = analyze_video(brief, video_dir, api_key)
+    for k, v in analysis.items():
+        print(f"  {k}: {v}")
+    brief["visual_analysis"].update(analysis)
+    brief["visual_analysis"]["status"] = "done"
+
+    print("\n--- Generation plan (Claude) ---")
+    days = generate_daily_plan([brief], persona_dir, num_days=1, api_key=api_key)
+    print(json.dumps(days, indent=2))
+    print("\nStopped here as requested — no Higgsfield call, no Buffer draft.")
+    return 0
+
+
 def cmd_list_runs(args: argparse.Namespace) -> int:
     settings = load_settings()
     runs = storage.list_runs(settings.data_dir)
@@ -250,6 +323,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--persona-dir", required=True, help="Path to docs/personas/<Name>/")
     p_plan.add_argument("--num-days", type=int, default=1)
     p_plan.set_defaults(func=cmd_plan)
+
+    p_test_video = sub.add_parser(
+        "test-video",
+        help="Run scout+analyze+plan on ONE specific post/reel URL (needs ANTHROPIC_API_KEY) "
+        "and print every intermediate result. Stops before generation — no Higgsfield call, "
+        "no Buffer draft.",
+    )
+    p_test_video.add_argument("--url", required=True, help="Full Instagram post/reel URL")
+    p_test_video.add_argument("--persona-dir", required=True, help="Path to docs/personas/<Name>/")
+    p_test_video.set_defaults(func=cmd_test_video)
 
     p_list = sub.add_parser("list-runs", help="List all runs.")
     p_list.set_defaults(func=cmd_list_runs)
