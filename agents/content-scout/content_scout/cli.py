@@ -8,13 +8,19 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 
 from content_scout import pipeline, storage
 from content_scout.config import load_settings
+from content_scout.persona_content import generate_daily_plan, write_content_plan
 from content_scout.platforms.base import KNOWN_PLATFORMS
 from content_scout.report.render import assemble_final_report
+from content_scout.report.weekly import build_weekly_summary
 from content_scout.utils.logging import get_logger
+from content_scout.visual import stub as visual_stub
+from content_scout.visual.auto_analyze import analyze_and_fill
 
 log = get_logger("content_scout.cli")
 
@@ -110,6 +116,75 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analyze(args: argparse.Namespace) -> int:
+    """Automated stage 7 + 10 — no interactive session needed. Fills visual_analysis for
+    every pending video via the Anthropic API, writes synthesis.md + telegram_summary.txt,
+    and finalizes report.md. This is what the scheduled weekly job runs."""
+    settings = load_settings()
+    paths = storage.RunPaths(settings.data_dir, args.run_id)
+    if not paths.run_dir.exists():
+        print(f"Error: no such run: {args.run_id}", file=sys.stderr)
+        return 1
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
+        return 1
+
+    pending = visual_stub.pending_videos(paths)
+    print(f"Analyzing {len(pending)} video(s)...")
+    for p in pending:
+        brief_path = Path(p["brief_path"])
+        brief = storage.read_brief(brief_path)
+        try:
+            analyze_and_fill(brief_path, brief, api_key)
+            print(f"  done: [{p['platform']}] {p['video_id']}")
+        except Exception as exc:  # noqa: BLE001 — one bad video shouldn't kill the whole analyze pass
+            print(f"  failed: [{p['platform']}] {p['video_id']} — {exc}", file=sys.stderr)
+
+    manifest = storage.read_manifest(paths)
+    briefs = [storage.read_brief(bp) for bp in paths.iter_briefs()]
+    synthesis_md, telegram_summary = build_weekly_summary(
+        paths.run_dir, briefs, manifest["niche"], paths.run_id, api_key
+    )
+    paths.synthesis_path.write_text(synthesis_md, encoding="utf-8")
+    telegram_path = paths.run_dir / "telegram_summary.txt"
+    telegram_path.write_text(telegram_summary, encoding="utf-8")
+
+    report_path = assemble_final_report(paths)
+    print(f"\nSynthesis: {paths.synthesis_path}")
+    print(f"Telegram summary: {telegram_path}")
+    print(f"Final report: {report_path}")
+    return 0
+
+
+def cmd_plan(args: argparse.Namespace) -> int:
+    """Turns an analyzed run's findings into num-days worth of persona content
+    (generation prompt + caption + hashtags each), written to content_plan.json in the
+    run directory. Run `analyze` first so briefs actually have visual_analysis filled in."""
+    settings = load_settings()
+    paths = storage.RunPaths(settings.data_dir, args.run_id)
+    if not paths.run_dir.exists():
+        print(f"Error: no such run: {args.run_id}", file=sys.stderr)
+        return 1
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
+        return 1
+
+    persona_dir = Path(args.persona_dir)
+    if not (persona_dir / "persona.json").exists():
+        print(f"Error: no persona.json found under {persona_dir}", file=sys.stderr)
+        return 1
+
+    briefs = [storage.read_brief(bp) for bp in paths.iter_briefs()]
+    days = generate_daily_plan(briefs, persona_dir, args.num_days, api_key)
+    out_path = write_content_plan(paths.run_dir, days)
+    print(f"Wrote {len(days)} day(s) of content to {out_path}")
+    return 0
+
+
 def cmd_list_runs(args: argparse.Namespace) -> int:
     settings = load_settings()
     runs = storage.list_runs(settings.data_dir)
@@ -157,6 +232,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--run-id", required=True)
     p_report.add_argument("--finalize", action="store_true")
     p_report.set_defaults(func=cmd_report)
+
+    p_analyze = sub.add_parser(
+        "analyze",
+        help="Automated stage 7+10 (needs ANTHROPIC_API_KEY) — fills visual analysis, writes "
+        "synthesis + Telegram summary, finalizes the report. No interactive session needed.",
+    )
+    p_analyze.add_argument("--run-id", required=True)
+    p_analyze.set_defaults(func=cmd_analyze)
+
+    p_plan = sub.add_parser(
+        "plan",
+        help="Turn an analyzed run into N days of persona content (needs ANTHROPIC_API_KEY) — "
+        "writes content_plan.json (generation prompt + caption + hashtags per day) to the run dir.",
+    )
+    p_plan.add_argument("--run-id", required=True)
+    p_plan.add_argument("--persona-dir", required=True, help="Path to docs/personas/<Name>/")
+    p_plan.add_argument("--num-days", type=int, default=1)
+    p_plan.set_defaults(func=cmd_plan)
 
     p_list = sub.add_parser("list-runs", help="List all runs.")
     p_list.set_defaults(func=cmd_list_runs)

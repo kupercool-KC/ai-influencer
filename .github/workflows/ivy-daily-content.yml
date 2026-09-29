@@ -1,0 +1,159 @@
+name: Ivy daily content pipeline
+
+# Fully automated daily pipeline for Ivy Vale: scouts real recent posts from 3 accessible
+# Instagram accounts in her niche (itslenasky and lilyc.larkee are behind Instagram's
+# "Restricted profile" wall and are deliberately excluded — see
+# agents/content-scout/README.md's Known limitations), analyzes them headlessly via Claude
+# (content_scout's `analyze` command — no human/agent needed), turns the findings into one
+# new on-brand image + caption for Ivy via the Soul-locked Higgsfield technique, and queues
+# it as a Buffer DRAFT on both her channels for manual review.
+#
+# Buffer drafts are NEVER auto-published — that's a deliberate, explicit choice (see
+# buffer-dispatch.yml). This workflow only gets you to "ready for your one-tap approval."
+#
+# workflow_dispatch also accepts num_days > 1 for a one-time backfill (e.g. seeding a
+# week of drafts at once) — it reuses the exact same code path as the daily cron run
+# rather than a separate one-off script.
+#
+# Needs repo secrets: ANTHROPIC_API_KEY, HIGGSFIELD_CREDENTIALS_B64, BUFFER_API_KEY,
+# TELEGRAM_BOT_TOKEN, TELEGRAM_OWNER_CHAT_ID (all already configured for other workflows).
+# SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are optional — when set, each draft is also
+# logged as a scheduled_dispatches row (same as buffer-dispatch.yml on its own).
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # ~09:00 Israel time (IDT/IST either side of DST)
+  workflow_dispatch:
+    inputs:
+      num_days:
+        description: "How many days of content to generate this run (use >1 only for a one-time backfill)"
+        default: "1"
+        required: true
+
+env:
+  HIGGSFIELD_WORKSPACE_ID: "464e34d3-f7ad-4da0-a24a-c00a94910a9b"
+  IVY_SOUL_ID: "850935eb-8238-4507-9df5-a28cefe9a461"
+  IVY_ANCHOR_REF: "../../docs/personas/Ivy Vale/references/anchor.png"
+  BUFFER_CHANNEL_INSTAGRAM: "6aaff65cea19ca0bde976b01"
+  BUFFER_CHANNEL_TIKTOK: "6aaff5bdea19ca0bde975a46"
+
+jobs:
+  content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: agents/content-scout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Install Higgsfield CLI + restore credentials
+        run: |
+          npm i -g @higgsfield/cli
+          mkdir -p ~/.config/higgsfield
+          echo "${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}" | base64 -d > ~/.config/higgsfield/credentials.json
+          chmod 600 ~/.config/higgsfield/credentials.json
+          higgsfield workspace set "$HIGGSFIELD_WORKSPACE_ID"
+
+      - name: Scout — discover recent posts from Ivy's inspiration accounts
+        id: scout
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -e
+          OUT=$(python -m content_scout.cli run \
+            --niche "ivy vale coastal wellness" \
+            --platforms instagram \
+            --instagram-accounts "nika_yammys,milena_milenko,sophiebatzloff" \
+            --since-days 14 \
+            --per-platform-limit 36)
+          echo "$OUT"
+          RUN_ID=$(echo "$OUT" | grep -oE "Run '[^']+'" | head -1 | sed "s/Run '//;s/'//")
+          if [ -z "$RUN_ID" ]; then echo "Could not parse run id from scout output" >&2; exit 1; fi
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m content_scout.cli analyze --run-id "${{ steps.scout.outputs.run_id }}"
+
+      - name: Plan — turn findings into this run's day(s) of Ivy content
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IN_NUM_DAYS: ${{ inputs.num_days }}
+        run: |
+          NUM_DAYS="${IN_NUM_DAYS:-1}"
+          python -m content_scout.cli plan \
+            --run-id "${{ steps.scout.outputs.run_id }}" \
+            --persona-dir "../../docs/personas/Ivy Vale" \
+            --num-days "$NUM_DAYS"
+
+      - name: Generate each day's image and queue Buffer drafts
+        env:
+          BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -e
+          RUN_DIR="data/runs/${{ steps.scout.outputs.run_id }}"
+          PLAN_FILE="$RUN_DIR/content_plan.json"
+          COUNT=$(jq '.days | length' "$PLAN_FILE")
+          echo "Generating $COUNT day(s) of content..."
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
+            CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
+            HASHTAGS=$(jq -r '.days['"$i"'].hashtags | map("#" + .) | join(" ")' "$PLAN_FILE")
+            FULL_CAPTION="$CAPTION"$'\n\n'"$HASHTAGS"
+
+            echo "--- Day $i ---"
+            # Soul + exactly one image reference, together — the established rule that
+            # keeps Ivy's identity locked (see docs/personas/Ivy Vale/persona.json's
+            # "usage" note). text2image_soul_v2 only accepts quality 1.5k|2k (no
+            # "resolution" param, no 4:5 aspect ratio) — confirmed via
+            # `higgsfield model get text2image_soul_v2` before writing this, not guessed.
+            IMAGE_URL=$(higgsfield generate create text2image_soul_v2 \
+              --prompt "$PROMPT" \
+              --custom_reference_id "$IVY_SOUL_ID" \
+              --image-references "$IVY_ANCHOR_REF" \
+              --aspect_ratio 3:4 \
+              --quality 2k \
+              --wait --wait-timeout 5m)
+            echo "Day $i image: $IMAGE_URL"
+
+            pushd ../dispatch > /dev/null
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale
+            popd > /dev/null
+          done
+
+      - name: Notify Telegram
+        if: always()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
+        run: |
+          SUMMARY_FILE="data/runs/${{ steps.scout.outputs.run_id }}/telegram_summary.txt"
+          if [ -f "$SUMMARY_FILE" ]; then
+            TEXT=$(cat "$SUMMARY_FILE")
+          else
+            TEXT="Ivy daily content run finished — no scout summary available (check the run log)."
+          fi
+          TEXT="$TEXT"$'\n\n'"📝 New Buffer draft(s) are waiting for your review — nothing was auto-published."
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" \
+                  '{chat_id:$chat_id, text:$text}')"
