@@ -26,6 +26,20 @@ Nothing here calls a paid vision/LLM API — this design deliberately avoids nee
 API key. Run `content-scout run`, then hand the run to your agent for stages 7 and 10, then
 run `content-scout report --finalize`.
 
+### Unattended alternative: `content-scout analyze` (needs `ANTHROPIC_API_KEY`)
+
+For scheduled/unattended runs (no one at a keyboard to do stages 7+10 interactively),
+`python -m content_scout.cli analyze --run-id <id>` does the same two steps automatically —
+calling the Anthropic API directly per video with its keyframes (see
+`content_scout/visual/auto_analyze.py`), then a final synthesis call (see
+`content_scout/report/weekly.py`) — writing `synthesis.md`, `telegram_summary.txt` (a
+Telegram-ready condensed report), and the finalized `report.md`. This is what
+`.github/workflows/ivy-daily-content.yml` runs daily: scout → `analyze` →
+`content_scout.cli plan` (turns the findings into a persona's next post — see
+`persona_content.py`) → Higgsfield generation → a Buffer DRAFT queued for manual approval.
+The interactive path above still works and is untouched; this is the always-available
+fallback that makes a scheduled job possible.
+
 ## Setup
 
 ### 1. Python environment
@@ -168,6 +182,15 @@ composite_score     = min-max normalized within the pool, [0, 1]
   TikTok has no equivalent login wall for public videos and is the primary inspiration source
   for this reason** — Instagram discovery in this pipeline only works for ordinary,
   non-gated accounts.
+- **Non-gated Instagram profiles are still capped at ~12 posts, with no pagination
+  possible.** Confirmed 2026-09-29: scrolling a logged-out profile page triggers zero new
+  GraphQL requests (checked via live network-request logging), so there's no "load more"
+  to trigger without a session — this is a platform-side cap, not a scroll-implementation
+  bug. `instagram.py`'s `discover()` reflects this (`MAX_POSTS_PER_ACCOUNT = 12`); widening
+  `--since-days` alone does not surface more posts than what's already on first paint.
+  Also note the pipeline only keeps **video** posts (image-only posts are skipped by
+  design — see `_extract_post`'s early return), so actual yield per account depends on how
+  video-heavy that account's recent posting mix is, independent of this cap.
 - **Facebook is out of scope** — flagged as the unreliable weak link in the original scraper
   research (no free, complete, reliable path found for competitor video content).
 - **TikTok's native subtitles aren't wired up yet.** The Apify actor's output includes

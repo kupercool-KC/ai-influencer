@@ -34,6 +34,7 @@ Known limits of this approach:
 """
 from __future__ import annotations
 
+import random
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -104,7 +105,11 @@ def _extract_counts(page: Any) -> tuple[int, int]:
     )
     if not container_text:
         return 0, 0
-    match = re.search(r"Like([\d.,]+[KM]?)Comment([\d.,]+[KM]?)Share", container_text)
+    # Like count text is sometimes absent entirely (post owner hides it, or it's simply
+    # not rendered as text) — e.g. "LikeComment11Share" with no number after "Like".
+    # Verified live 2026-09-29 against a real post. The like group is optional so a
+    # missing like count doesn't also zero out a real, present comment count.
+    match = re.search(r"Like([\d.,]+[KM]?)?Comment([\d.,]+[KM]?)Share", container_text)
     if not match:
         return 0, 0
     return _parse_count(match.group(1)), _parse_count(match.group(2))
@@ -181,6 +186,16 @@ def _extract_post(page: Any, url: str, cutoff_ts: float) -> RawVideo | None:
     )
 
 
+# Verified live (2026-09-29): scrolling a logged-out profile page triggers ZERO new
+# GraphQL requests — confirmed via network-request logging during a real scroll attempt.
+# Instagram's logged-out profile view is capped at whatever renders on first paint
+# (~12 posts) with no pagination available at all, not a bug in this scraper. Don't
+# re-add scroll-based "load more" logic here without re-verifying that's changed —
+# extra scrolling would just add requests for zero benefit, working against the
+# be-gentle goal below.
+MAX_POSTS_PER_ACCOUNT = 12
+
+
 def discover(niche: str, settings: Settings, since_days: int, limit: int) -> list[RawVideo]:
     try:
         from playwright.sync_api import sync_playwright
@@ -208,14 +223,17 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
         context = browser.new_context(user_agent=USER_AGENT)
         page = context.new_page()
         try:
-            for account in accounts:
+            for i, account in enumerate(accounts):
+                if i > 0:
+                    page.wait_for_timeout(int(random.uniform(2000, 4000)))  # gap between accounts
                 profile_url = account if account.startswith("http") else f"https://www.instagram.com/{account}/"
                 page.goto(profile_url, wait_until="networkidle", timeout=30000)
                 page.wait_for_timeout(1500)
+                target = min(per_account_limit, MAX_POSTS_PER_ACCOUNT)
                 hrefs: list[str] = page.eval_on_selector_all(
                     POST_LINK_SELECTOR, "els => [...new Set(els.map(e => e.href))]"
                 )
-                for href in hrefs[:per_account_limit]:
+                for href in hrefs[:target]:
                     try:
                         video = _extract_post(page, href, cutoff)
                     except Exception:
@@ -224,6 +242,7 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
                         results.append(video)
                     if len(results) >= limit:
                         break
+                    page.wait_for_timeout(int(random.uniform(600, 1400)))  # gap between post fetches
                 if len(results) >= limit:
                     break
         finally:

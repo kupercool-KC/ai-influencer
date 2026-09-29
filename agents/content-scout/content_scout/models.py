@@ -45,6 +45,8 @@ class RawVideo:
     shares: int
     data_completeness: str  # "full" | "partial" — set to "partial" if a platform can't expose a field (e.g. no shares)
     direct_media_url: str | None = None  # if the platform actor already hands back a downloadable URL
+    top_comments: list[str] = field(default_factory=list)  # a few verbatim top comments, when available —
+    # engagement *texture* (relatable/funny vs. questions vs. confused) that a raw count can't tell you
     raw: dict[str, Any] = field(default_factory=dict)  # original API payload, kept for debugging
 
 
@@ -87,6 +89,7 @@ def new_brief(video: ScoredVideo, run_id: str) -> dict[str, Any]:
                 "shares": r.shares,
                 "data_completeness": r.data_completeness,
             },
+            "top_comments": r.top_comments,
         },
         "ranking": {
             "raw_score": video.raw_score,
@@ -116,6 +119,11 @@ def new_brief(video: ScoredVideo, run_id: str) -> dict[str, Any]:
         "visual_analysis": {
             "status": "pending",
             "keyframe_paths": [],
+            "title": None,  # short quotable title capturing the hook/theme, e.g. "USA reveal"
+            "what_its_about": None,  # 1-3 plain sentences describing what the video shows
+            "format_archetype": None,  # short categorical tag, e.g. "styling tutorial",
+            # "outfit reveal", "day-in-the-life" — lets a report group "which formats work" instead
+            # of burying the pattern in free-text notes
             "hook_first_3_sec": None,
             "shot_composition": None,
             "lighting": None,
@@ -123,6 +131,7 @@ def new_brief(video: ScoredVideo, run_id: str) -> dict[str, Any]:
             "wardrobe_style_setting": None,
             "on_screen_graphics_style": None,
             "overall_notes": None,
+            "read": None,  # 1-2 sentence actionable takeaway: why it performed the way it did
             "filled_by": None,
             "filled_at": None,
         },

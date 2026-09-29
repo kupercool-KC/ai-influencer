@@ -11,6 +11,9 @@ from typing import Any
 from content_scout import storage
 
 VISUAL_FIELDS = [
+    "title",
+    "what_its_about",
+    "format_archetype",
     "hook_first_3_sec",
     "shot_composition",
     "lighting",
@@ -18,6 +21,7 @@ VISUAL_FIELDS = [
     "wardrobe_style_setting",
     "on_screen_graphics_style",
     "overall_notes",
+    "read",
 ]
 
 
