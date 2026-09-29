@@ -54,7 +54,20 @@ def _call_claude(api_key: str, content: list[dict[str, Any]], max_tokens: int = 
         timeout=120,
     )
     response.raise_for_status()
-    return response.json()["content"][0]["text"].strip()
+    data = response.json()
+    blocks = data.get("content") or []
+    # Don't assume content[0] is the text block — the API can (and, verified live
+    # 2026-09-29, did) return a non-text block first (e.g. a thinking block) before the
+    # actual answer. Take the first block that actually has text instead of indexing
+    # blindly, and surface the real response shape if none do (better than a bare
+    # KeyError three frames of context lost from this call).
+    for block in blocks:
+        if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
+            return block["text"].strip()
+    raise RuntimeError(
+        f"No text block in Claude response — stop_reason={data.get('stop_reason')!r}, "
+        f"block types={[b.get('type') for b in blocks if isinstance(b, dict)]!r}"
+    )
 
 
 def _strip_fences(text: str) -> str:
