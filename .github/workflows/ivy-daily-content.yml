@@ -32,8 +32,15 @@ on:
 
 env:
   HIGGSFIELD_WORKSPACE_ID: "464e34d3-f7ad-4da0-a24a-c00a94910a9b"
+  # text2image_soul_v2 + a single image reference was tried first (the Soul id below is
+  # still valid and usable elsewhere) but verified live 2026-09-29, twice, with very
+  # different prompts: it just reproduces the reference photo's scene almost verbatim
+  # instead of following the prompt's new scene. Switched to nano_banana_pro with the
+  # SAME multi-reference set already proven to work for Ivy's character sheet (see
+  # docs/personas/Ivy Vale/persona.json's training_images and PR #29) — multiple angles
+  # give it enough identity signal without anchoring to one exact photo's scene.
   IVY_SOUL_ID: "850935eb-8238-4507-9df5-a28cefe9a461"
-  IVY_ANCHOR_REF: "../../docs/personas/Ivy Vale/references/anchor.png"
+  IVY_REFERENCES: "../../docs/personas/Ivy Vale/soul-training/01-front-smile.jpg,../../docs/personas/Ivy Vale/soul-training/05-threequarter-right-golden.jpg,../../docs/personas/Ivy Vale/soul-training/04-profile-overcast.jpg"
   BUFFER_CHANNEL_INSTAGRAM: "6aaff65cea19ca0bde976b01"
   BUFFER_CHANNEL_TIKTOK: "6aaff5bdea19ca0bde975a46"
 
@@ -123,17 +130,21 @@ jobs:
             FULL_CAPTION="$CAPTION"$'\n\n'"$HASHTAGS"
 
             echo "--- Day $i ---"
-            # Soul + exactly one image reference, together — the established rule that
-            # keeps Ivy's identity locked (see docs/personas/Ivy Vale/persona.json's
-            # "usage" note). text2image_soul_v2 only accepts quality 1.5k|2k (no
-            # "resolution" param, no 4:5 aspect ratio) — confirmed via
-            # `higgsfield model get text2image_soul_v2` before writing this, not guessed.
-            IMAGE_URL=$(higgsfield generate create text2image_soul_v2 \
+            # nano_banana_pro with multiple angle references (up to 14 allowed; using the
+            # same 3-image set already proven for Ivy's character sheet) — confirmed exact
+            # params via `higgsfield model get nano_banana_pro` before writing this, not
+            # guessed: resolution is 1k|2k|4k (not "quality"), aspect_ratio supports 4:5.
+            REF_FLAGS=()
+            IFS=',' read -ra REFS <<< "$IVY_REFERENCES"
+            for ref in "${REFS[@]}"; do
+              REF_FLAGS+=(--image-references "$ref")
+            done
+
+            IMAGE_URL=$(higgsfield generate create nano_banana_pro \
               --prompt "$PROMPT" \
-              --custom_reference_id "$IVY_SOUL_ID" \
-              --image-references "$IVY_ANCHOR_REF" \
-              --aspect_ratio 3:4 \
-              --quality 2k \
+              "${REF_FLAGS[@]}" \
+              --aspect_ratio 4:5 \
+              --resolution 2k \
               --wait --wait-timeout 5m)
             echo "Day $i image: $IMAGE_URL"
 
