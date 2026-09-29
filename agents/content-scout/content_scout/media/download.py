@@ -26,6 +26,20 @@ def _download_direct(url: str, dest: Path) -> None:
                     f.write(chunk)
 
 
+def _has_video_stream(path: Path) -> bool:
+    """The "direct media URL" captured off a post page (the last video/mp4 network
+    response seen while it loaded — see platforms/instagram.py's module docstring) is
+    sometimes an audio-only DASH segment served with a video/mp4 content-type, not the
+    actual muxed video. Verified live 2026-09-29: ffmpeg correctly refused to sample
+    frames from exactly such a file ("Output file does not contain any stream"). Check
+    with ffprobe before trusting a "successful" direct download."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries", "stream=index", "-of", "csv=p=0", str(path)],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
 def _download_via_ytdlp(page_url: str, dest: Path) -> None:
     import yt_dlp
 
@@ -56,7 +70,12 @@ def download_video(
     if direct_media_url:
         try:
             _download_direct(direct_media_url, dest)
-            return dest, "direct_url"
+            if _has_video_stream(dest):
+                return dest, "direct_url"
+            # Downloaded fine but it's an audio-only segment mislabeled as video/mp4 —
+            # fall through to yt-dlp rather than handing back a file frame-sampling
+            # will always reject.
+            dest.unlink(missing_ok=True)
         except Exception:
             # Direct CDN URLs on these platforms can expire/require specific headers —
             # fall through to yt-dlp against the page URL rather than failing the video.
