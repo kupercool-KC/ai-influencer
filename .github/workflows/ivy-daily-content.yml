@@ -101,6 +101,8 @@ jobs:
             --run-id "${{ steps.scout.outputs.run_id }}" \
             --persona-dir "../../docs/personas/Ivy Vale" \
             --num-days "$NUM_DAYS"
+          echo "--- content_plan.json ---"
+          cat "data/runs/${{ steps.scout.outputs.run_id }}/content_plan.json"
 
       - name: Generate each day's image and queue Buffer drafts
         env:

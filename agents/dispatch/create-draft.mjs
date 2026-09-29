@@ -75,6 +75,12 @@ async function main() {
       }
     }
   `
+  // Instagram's Buffer API requires metadata.instagram.type + shouldShareToFeed on every
+  // post (confirmed via the Buffer MCP's introspect_schema — "Invalid post: Instagram
+  // posts require a type" otherwise). A plain feed image is type "post"; TikTok has no
+  // such required metadata.
+  const metadata = platform === 'instagram' ? { instagram: { type: 'post', shouldShareToFeed: true } } : undefined
+
   const variables = {
     input: {
       text,
@@ -83,6 +89,7 @@ async function main() {
       mode: 'addToQueue',
       saveToDraft: true,
       assets: [{ image: { url: image } }],
+      ...(metadata ? { metadata } : {}),
     },
   }
 
