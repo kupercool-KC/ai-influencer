@@ -250,4 +250,28 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
     return results
 
 
+def discover_single_url(url: str) -> RawVideo | None:
+    """Extract one specific post/reel URL directly, bypassing the profile-grid discovery
+    above entirely — for on-demand tests/tools that already know the exact URL a human
+    gave them (e.g. "run the pipeline on this one reel"), where navigating to it as if it
+    were a profile page wouldn't reliably find it. Reuses `_extract_post`, the same
+    per-post extraction `discover()` uses, so results are identical in shape."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "playwright is required for Instagram discovery. Install it with: "
+            "pip install playwright && python -m playwright install chromium"
+        ) from exc
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(user_agent=USER_AGENT)
+        page = context.new_page()
+        try:
+            return _extract_post(page, url, cutoff_ts=0)
+        finally:
+            browser.close()
+
+
 register("instagram", discover)
