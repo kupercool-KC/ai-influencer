@@ -26,12 +26,17 @@ def run_preflight(settings: Settings, platforms: list[str]) -> list[PreflightIss
     if free_gb < 2:
         issues.append(PreflightIssue("warning", f"Only {free_gb:.1f} GB free disk — media downloads may fail on a large run."))
 
-    needs_apify = any(p in ("tiktok", "instagram") for p in platforms)
+    # Instagram discovery moved off Apify to a no-login Playwright approach (see
+    # platforms/instagram.py's module docstring for why) — only TikTok still needs
+    # Apify. Verified live 2026-09-29: this check was still blocking instagram-only
+    # runs with an APIFY_TOKEN error that has nothing to do with what instagram.py
+    # actually uses.
+    needs_apify = "tiktok" in platforms
     if needs_apify and not settings.apify_token:
         issues.append(
             PreflightIssue(
                 "error",
-                "APIFY_TOKEN not set, but tiktok/instagram were requested. "
+                "APIFY_TOKEN not set, but tiktok was requested. "
                 "See .env.example and the setup walkthrough for how to get one.",
             )
         )
