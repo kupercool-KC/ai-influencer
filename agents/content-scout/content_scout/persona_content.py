@@ -5,13 +5,15 @@ post today": one Higgsfield generation prompt + one caption per day requested.
 Calls the Anthropic API directly, the same pattern as visual/auto_analyze.py and
 report/weekly.py, so this runs unattended in the same GitHub Actions job as `analyze`.
 
-Hard rule baked into the prompt below, not left to chance: a trained-Soul persona's
-identity is held by the Soul id + one image reference passed together at generation time
-(see docs/personas/<Name>/persona.json's "usage" note) — the *text* prompt this module
-writes must describe scene/pose/wardrobe/lighting only, and must NOT redescribe the
-person's face/skin/hair/eyes. Doing that (a "physicalDesc") is exactly the bug that caused
-Ivy's face-drift earlier in this project (see higgsfieldGenerate.js's buildFaceInstruction
-history) — this module exists to produce new content, not to reopen that bug.
+Hard rule baked into the prompt below, not left to chance: identity is held by the image
+reference(s) passed at generation time (a Soul id + single reference, or — as of 2026-09-29,
+after live testing showed the Soul+single-reference combo just reproduces the reference's
+scene regardless of the prompt — multiple angle references via nano_banana_pro, see
+ivy-daily-content.yml) — the *text* prompt this module writes must describe
+scene/pose/wardrobe/lighting only, and must NOT redescribe the person's face/skin/hair/eyes.
+Doing that (a "physicalDesc") is exactly the bug that caused Ivy's face-drift earlier in
+this project (see higgsfieldGenerate.js's buildFaceInstruction history) — this module
+exists to produce new content, not to reopen that bug.
 """
 from __future__ import annotations
 
@@ -38,11 +40,11 @@ outfit/setting from the others — no two days should read like the same photo."
 PROMPT_RULES = """Hard rules for every "generation_prompt" you write:
 - Describe ONLY scene, pose, camera framing, lighting, wardrobe, and setting.
 - Do NOT describe the person's face, skin, hair color, eye color, or any physical trait —
-  those are locked by a separately-supplied identity reference image and restating them in
+  those are locked by separately-supplied identity reference image(s) and restating them in
   text is what causes visual drift (a documented, already-fixed bug in this project).
 - Open with an instruction to faithfully recreate the reference person's face/identity
-  exactly as shown, then move straight to the new scene — never "reimagine" or "reinterpret"
-  the person.
+  exactly as shown across the reference images, then move straight to the new scene — never
+  "reimagine" or "reinterpret" the person.
 - Keep it to one clear scene per image; avoid multi-panel or composite instructions.
 """
 
