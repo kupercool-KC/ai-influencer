@@ -6,10 +6,18 @@
 // Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"
 //   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
 //   [--post-type post|story]  (story is Instagram-only; ignored/invalid for other platforms)
+//   [--audio-mood "<vibe words>"]  (Instagram Stories only — see pickInstagramAudio below)
 //
 // Requires BUFFER_API_KEY in the environment. If SUPABASE_URL +
 // SUPABASE_SERVICE_ROLE_KEY are also set, records the draft as a row in
 // scheduled_dispatches (skipped silently otherwise).
+//
+// Music (2026-09-30, researched — see docs/video-prompt-spec.md §11): Buffer's GraphQL API
+// exposes real Instagram trending-audio search (searchInstagramAudio/trendingInstagramAudio)
+// and an InstagramStickerFields.music field, so a real trending/mood-matched track CAN be
+// attached automatically to an Instagram Story — this is not possible for TikTok, whose
+// Content Posting API does not accept a sound selection from third-party tools at all (a real
+// platform restriction, confirmed via web research, not something this code can route around).
 
 function parseArgs(argv) {
   const out = {}
@@ -32,6 +40,35 @@ async function bufferQuery(query, variables) {
   const data = await r.json()
   if (data.errors) throw new Error(data.errors.map(e => e.message).join('; '))
   return data.data
+}
+
+async function pickInstagramAudio(channelId, mood) {
+  const AUDIO_FRAGMENT = `
+    ... on SearchInstagramAudioSuccess { audio { id title displayArtist } }
+    ... on ChannelRefreshRequired { message }
+  `
+  if (mood) {
+    try {
+      const data = await bufferQuery(
+        `query($input: SearchInstagramAudioInput!) { searchInstagramAudio(input: $input) { ${AUDIO_FRAGMENT} } }`,
+        { input: { channelId, audioType: 'music', query: mood } },
+      )
+      const hit = data.searchInstagramAudio?.audio?.[0]
+      if (hit) return hit
+    } catch (e) {
+      console.error(`Warning: Instagram audio search failed (${e.message}), falling back to trending`)
+    }
+  }
+  try {
+    const data = await bufferQuery(
+      `query($input: TrendingInstagramAudioInput!) { trendingInstagramAudio(input: $input) { ${AUDIO_FRAGMENT} } }`,
+      { input: { channelId, audioType: 'music' } },
+    )
+    return data.trendingInstagramAudio?.audio?.[0] || null
+  } catch (e) {
+    console.error(`Warning: Instagram trending audio fetch failed (${e.message}), posting without music`)
+    return null
+  }
 }
 
 async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId }) {
@@ -60,7 +97,7 @@ async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPost
 async function main() {
   const {
     channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
-    'post-type': postType = 'post',
+    'post-type': postType = 'post', 'audio-mood': audioMood,
   } = parseArgs(process.argv.slice(2))
   if (!channel || !image || !text) {
     console.error('Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"')
@@ -87,9 +124,17 @@ async function main() {
   // post (confirmed via the Buffer MCP's introspect_schema — "Invalid post: Instagram
   // posts require a type" otherwise). A plain feed image is type "post"; a Story is type
   // "story" and must NOT also share to the feed. TikTok has no such required metadata.
-  const metadata = platform === 'instagram'
-    ? { instagram: postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: 'post', shouldShareToFeed: true } }
-    : undefined
+  let instagramMeta = postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: 'post', shouldShareToFeed: true }
+  if (platform === 'instagram' && postType === 'story') {
+    const audio = await pickInstagramAudio(channel, audioMood)
+    if (audio) {
+      console.log(`Attaching Instagram audio: "${audio.title}" — ${audio.displayArtist || 'unknown artist'} (id ${audio.id})`)
+      instagramMeta = { ...instagramMeta, stickerFields: { music: audio.id } }
+    } else {
+      console.log('No Instagram audio found/attached for this story (posting without music).')
+    }
+  }
+  const metadata = platform === 'instagram' ? { instagram: instagramMeta } : undefined
 
   const variables = {
     input: {

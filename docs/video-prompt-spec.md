@@ -272,6 +272,23 @@ in code). `ivy-daily-content.yml` renders the Story image via a second `nano_ban
 (`--aspect_ratio 9:16`, same identity references, +2 credits/day) and queues both Stories via
 `create-draft.mjs --post-type story`.
 
+**Music (added 2026-09-30, per Iddo's request — must be automatic, not a manual step).**
+Checked Buffer's GraphQL schema (`introspect_schema`) directly rather than assuming:
+- **Instagram: real, automatable.** Buffer exposes `searchInstagramAudio` / `trendingInstagramAudio`
+  queries (return real catalog tracks: id, title, artist, preview) and an
+  `InstagramStickerFields.music` field on `metadata.instagram`. `persona_content.py` writes an
+  `audio_mood` per day (a genre/vibe phrase, not a made-up song title);
+  `create-draft.mjs`'s `pickInstagramAudio()` searches that mood against the real catalog,
+  falls back to trending if no match, and attaches the track's id to both Stories. Feed
+  **posts** (still images) don't get music — Instagram doesn't play audio on static feed
+  photos, only Stories/Reels.
+- **TikTok: a real platform restriction, not a gap in our code.** TikTok's Content Posting
+  API does not accept a sound/song selection from third-party tools at all — confirmed via
+  web research (a draft posted without a `song_clip_id` can't have one added later without
+  recreating the post, and no equivalent field exists in Buffer's schema for TikTok). There is
+  no automatable path here; if TikTok audio matters, it has to be chosen manually inside
+  TikTok's own app before/while publishing — that limitation is platform-side, not ours.
+
 ## 12. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.

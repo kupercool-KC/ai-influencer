@@ -131,6 +131,7 @@ jobs:
             STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
             STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
             POST_REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
+            AUDIO_MOOD=$(jq -r ".days[$i].audio_mood // empty" "$PLAN_FILE")
 
             echo "--- Day $i ---"
             # nano_banana_pro with multiple angle references (up to 14 allowed; using the
@@ -171,11 +172,14 @@ jobs:
             # "go see my new post" nudge reusing the feed image — see persona_content.py's
             # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
             # native post-share sticker (that mechanic isn't exposed by the API Buffer uses).
+            # Both Stories get real Instagram trending audio attached automatically (matched
+            # to audio_mood via Buffer's searchInstagramAudio, falling back to trending) — see
+            # create-draft.mjs's pickInstagramAudio. Not possible for TikTok (§11 in the spec).
             if [ -n "$STORY_IMAGE_URL" ] && [ -n "$STORY_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$AUDIO_MOOD"
             fi
             if [ -n "$POST_REMINDER_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$AUDIO_MOOD"
             fi
             popd > /dev/null
           done
