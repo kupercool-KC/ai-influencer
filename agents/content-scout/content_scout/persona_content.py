@@ -28,19 +28,26 @@ with exactly this shape:
 {
   "days": [
     {
-      "generation_prompt": "the full Higgsfield generation prompt text for one image",
-      "caption": "the social caption to post alongside it, in the persona's voice",
+      "generation_prompt": "the full Higgsfield generation prompt text for the FEED image (4:5)",
+      "caption": "the social caption to post alongside the feed image, in the persona's voice",
       "hashtags": ["3-6 short hashtags, no # symbol"],
-      "story_text": "a short (<=15 words), casual, in-the-moment line for an Instagram Story \
-overlay on the SAME image — different tone from the feed caption: like a quick aside to a \
-friend, not a polished post. Can be a question, a one-liner, or a mini poll prompt. No hashtags."
+      "story_prompt": "a SEPARATE Higgsfield generation prompt for a dedicated 9:16 Story image \
+— a genuinely different candid moment from the feed image (different pose/angle/micro-scene, \
+same location and outfit family is fine), shot like a quick vertical phone snap, not a \
+polished photoshoot frame",
+      "story_text": "a short (<=15 words), casual, in-the-moment overlay line for that Story \
+image — different tone from the feed caption: like a quick aside to a friend, not a polished \
+post. Can be a question, a one-liner, or a mini poll prompt. No hashtags.",
+      "post_reminder_text": "a very short (<=10 words), casual line for a SECOND Story that \
+reuses the SAME feed image/moment to nudge followers to the new feed post — e.g. \"new post is \
+up, go check it out\" in the persona's own voice. Not a repeat of the feed caption."
     }
   ]
 }
 "days" must have exactly NUM_DAYS entries, each one a genuinely different scene/pose/
 outfit/setting from the others — no two days should read like the same photo."""
 
-PROMPT_RULES = """Hard rules for every "generation_prompt" you write:
+PROMPT_RULES = """Hard rules for every "generation_prompt" AND "story_prompt" you write:
 - Describe ONLY scene, pose, camera framing, lighting, wardrobe, and setting.
 - Do NOT describe the person's face, skin, hair color, eye color, or any physical trait —
   those are locked by separately-supplied identity reference image(s) and restating them in
@@ -49,12 +56,6 @@ PROMPT_RULES = """Hard rules for every "generation_prompt" you write:
   exactly as shown across the reference images, then move straight to the new scene — never
   "reimagine" or "reinterpret" the person.
 - Keep it to one clear scene per image; avoid multi-panel or composite instructions.
-- AUTHENTICITY (feedback from Iddo, 2026-09-30 — a too-perfect/empty background reads as
-  fake): the setting must look like a real candid moment, not a staged photoshoot. Include at
-  least one grounding imperfection — a person or two faintly visible in the background (out of
-  focus, going about their day), natural background clutter/imperfection, or a shallow-depth-
-  of-field blur on the background — and avoid describing picture-perfect, deserted, magazine-
-  cover framing.
 - LOCATION CONTINUITY (feedback from Iddo, 2026-09-30): Ivy is based in Australia (Byron Bay /
   Sydney — see the persona's "Content world"). Default every day's setting to Australia unless
   you were explicitly told this batch is a specific travel arc (e.g. "5-day Bali trip") — in
@@ -62,6 +63,35 @@ PROMPT_RULES = """Hard rules for every "generation_prompt" you write:
   real trip (arrival/exploring/local-life beats), not a different country each day with no
   narrative. Never invent a new country for a single unrelated day.
 """
+
+# General creative guidance (not a per-image checklist item — feedback from Iddo, 2026-09-30,
+# on seeing a too-perfect/empty magazine-style background): use judgment about when a setting
+# should carry some real-world imperfection (people faintly visible in the background, natural
+# clutter, a shallow-depth-of-field blur) so it reads as a genuine candid moment rather than a
+# staged photoshoot — not something to force into literally every single image regardless of
+# scene, which would just trade one artificial pattern for another.
+AUTHENTICITY_GUIDANCE = """General creative direction (use judgment, not a mandatory checklist):
+Real Instagram photos from this niche are rarely perfectly composed or deserted — most have
+some natural imperfection: a stranger in the background, mild clutter, an unposed moment
+mid-motion. Lean toward that realism where the scene calls for it, rather than defaulting to
+pristine, magazine-cover framing every time."""
+
+# Stories strategy (added 2026-09-30, researched against current creator-marketing guidance —
+# see docs/video-prompt-spec.md's Stories section). Two Stories go out per day, both Instagram-
+# only: one genuinely new candid Story moment (story_prompt/story_text), and one that just
+# reuses the feed image as a quick "go see my new post" nudge (post_reminder_text). Note the
+# real limitation behind the second one: Instagram's native "share this post to your Story"
+# button creates a tappable mini-thumbnail sticker linking straight to the post — that specific
+# mechanic is an in-app-only feature, not exposed by the Graph API Buffer schedules through, so
+# this can't be fully replicated by automation. Posting the same image again with a short nudge
+# caption is the closest automatable equivalent, not the real feature.
+STORIES_GUIDANCE = """Stories guidance (for story_prompt/story_text and post_reminder_text):
+- The Story image should read as an unedited, in-the-moment vertical phone photo — candid
+  energy, not a second version of the polished feed shot.
+- story_text works best as something that invites a reaction: a specific question, a quick
+  opinion, a small relatable confession — generic captions get skipped fastest.
+- post_reminder_text should feel like a casual nudge in Ivy's own voice, not an ad — short,
+  no hashtags, no re-explaining the caption."""
 
 
 def _load_persona(persona_dir: Path) -> dict[str, Any]:
@@ -110,6 +140,10 @@ working in the inspiration above (format, hook style, setting) without copying a
 post, and vary each day from the others.
 
 {PROMPT_RULES}
+
+{AUTHENTICITY_GUIDANCE}
+
+{STORIES_GUIDANCE}
 
 {PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}
 """

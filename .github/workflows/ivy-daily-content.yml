@@ -128,7 +128,9 @@ jobs:
             CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
             HASHTAGS=$(jq -r '.days['"$i"'].hashtags | map("#" + .) | join(" ")' "$PLAN_FILE")
             FULL_CAPTION="$CAPTION"$'\n\n'"$HASHTAGS"
+            STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
             STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
+            POST_REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
 
             echo "--- Day $i ---"
             # nano_banana_pro with multiple angle references (up to 14 allowed; using the
@@ -149,13 +151,31 @@ jobs:
               --wait --wait-timeout 5m)
             echo "Day $i image: $IMAGE_URL"
 
+            # Second image: a dedicated 9:16 Story shot — a different candid moment from the
+            # feed image, not a crop of it (see persona_content.py's story_prompt guidance).
+            STORY_IMAGE_URL=""
+            if [ -n "$STORY_PROMPT" ]; then
+              STORY_IMAGE_URL=$(higgsfield generate create nano_banana_pro \
+                --prompt "$STORY_PROMPT" \
+                "${REF_FLAGS[@]}" \
+                --aspect_ratio 9:16 \
+                --resolution 2k \
+                --wait --wait-timeout 5m)
+              echo "Day $i story image: $STORY_IMAGE_URL"
+            fi
+
             pushd ../dispatch > /dev/null
             node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale
             node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale
-            # Instagram Story draft, same day's image, casual overlay text — MVP: reuses
-            # the 4:5 feed image rather than a dedicated 9:16 story asset (follow-up item).
-            if [ -n "$STORY_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story
+            # Two Instagram Stories/day: (1) a genuinely new candid Story moment, (2) a quick
+            # "go see my new post" nudge reusing the feed image — see persona_content.py's
+            # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
+            # native post-share sticker (that mechanic isn't exposed by the API Buffer uses).
+            if [ -n "$STORY_IMAGE_URL" ] && [ -n "$STORY_TEXT" ]; then
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story
+            fi
+            if [ -n "$POST_REMINDER_TEXT" ]; then
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story
             fi
             popd > /dev/null
           done

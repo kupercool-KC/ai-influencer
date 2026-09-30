@@ -244,7 +244,35 @@ generation only if it creates or retires a learning.
   Higgsfield before choosing it over 2.0.
 - Reddit threads could only be read as search excerpts (full pages blocked to our tools).
 
-## 11. Open items
+## 11. Instagram Stories strategy (added 2026-09-30)
+
+Two Stories per day, Instagram only (not TikTok — Buffer's Story post type is Instagram-
+specific), both DRAFT-only same as feed posts:
+
+1. **A genuinely new candid Story moment** — a dedicated 9:16 image (`story_prompt`), not a
+   crop of the feed image. Research (Sprout Social, Hootsuite, SocialPilot, 2026 guides):
+   Stories work best as behind-the-scenes/in-the-moment content, not a repost of feed-quality
+   polish; a specific, identity-relevant question in the overlay text draws replies better
+   than a generic caption; the first Story of the day matters most (it's what shows first in
+   a follower's tray). `story_text` should read like a quick aside to a friend.
+2. **A "new post" nudge** — reuses the SAME feed image with a short, casual line
+   (`post_reminder_text`) pointing at today's feed post. **Real limitation, checked against
+   Buffer's GraphQL schema (`introspect_schema`)**: Instagram's native "share this post to
+   your Story" button creates a tappable thumbnail sticker that deep-links straight to the
+   post — that exact mechanic is an in-app-only feature of Instagram itself, not exposed by
+   the Graph API Buffer schedules through (Buffer's `metadata.instagram` only has `type`,
+   `shouldShareToFeed`, `link` (an arbitrary external URL, not an internal post link),
+   `geolocation`, and `stickerFields.text`). Posting the same image again with a short nudge
+   caption is the closest automatable equivalent — it is not the real "shared post" sticker,
+   and can't become one without a human manually tapping Share on the live post in the app.
+
+Implementation: `persona_content.py` generates `story_prompt` + `story_text` +
+`post_reminder_text` per day (same identity-lock rules as the feed prompt — see §PROMPT_RULES
+in code). `ivy-daily-content.yml` renders the Story image via a second `nano_banana_pro` call
+(`--aspect_ratio 9:16`, same identity references, +2 credits/day) and queues both Stories via
+`create-draft.mjs --post-type story`.
+
+## 12. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.
 - First owner review from the test (2026-09-30, informal, in chat, on the 4 test clips —
