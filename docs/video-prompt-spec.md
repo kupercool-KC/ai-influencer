@@ -289,7 +289,53 @@ Checked Buffer's GraphQL schema (`introspect_schema`) directly rather than assum
   no automatable path here; if TikTok audio matters, it has to be chosen manually inside
   TikTok's own app before/while publishing — that limitation is platform-side, not ours.
 
-## 12. Open items
+## 12. Posting cadence & schedule (added 2026-09-30)
+
+**Internal sources checked first — neither has a clock-time answer.** `AI_Influencer_Portfolio.docx`
+and `AI_Influencers_Market_Research.docx` (the two source documents this whole spec is built on)
+both say only "post daily" / "daily posting cadence" — no time-of-day guidance, no audience
+timezone. This section fills that gap with external research, per Iddo's direction.
+
+**Target market (confirmed with Iddo, 2026-09-30): US + Australia.** Ivy's persona is
+Australian (Byron Bay/Sydney), but the Portfolio doc's actual target audience for this
+character archetype is "Women 18-34, wellness & self-improvement seekers" with a
+brand-deal/subscription business model — that economics points at the US as the larger
+practical market, while Ivy's own backstory points at Australia. We serve both rather than
+picking one, using the two Stories we already produce per day (see §11) instead of forcing a
+single compromise time:
+
+| Slot | UTC | Australia (AEST, UTC+10*) | US (ET, UTC-4*) | What goes out | Why this slot |
+|---|---|---|---|---|---|
+| **A** | 21:00 | 07:00 (next day) | 17:00 (same day) | Feed post + Story 1 (candid) | Matches AU's actual morning — authentic for "just happened" content — and lands in the US's 5–9pm wind-down/relaxation window (strong secondary fit per research) |
+| **B** | 11:00 | 21:00 (same day) | 07:00 (same day) | Story 2 (reminder nudge) | Hits the US's peak 6–9am morning-scroll window (its highest-engagement slot for wellness content); a text nudge doesn't need scene-authenticity the way Slot A's candid moment does |
+
+*Australia observes DST (AEDT, UTC+11) from the first Sunday of October — these UTC offsets
+shift by an hour twice a year; a fixed UTC cron will drift by an hour during the transition
+weeks unless it's DST-aware. Not fixed in code yet — see Open Items.
+
+**Research this is based on** (2026-09-30 web search, general + niche-specific):
+- Wellness/lifestyle Instagram: strongest window **6–8am** (Tue/Wed especially) for
+  morning-routine content; secondary window **5–9pm** for relaxation/mindfulness content.
+- Wellness/lifestyle TikTok: **6–9am** for motivation content, **9–11pm** for wind-down
+  content; general peak windows are 6–9am and 6–10pm local time.
+- Timezone principle (near-universal across sources): **schedule to audience timezone, not
+  creator or operator timezone** — Ivy's fictional Australian home or Iddo's own Israel
+  timezone are both the wrong anchor; only the actual audience's clock matters. With zero real
+  followers yet, there's no analytics to confirm an actual audience split — the above is a
+  reasoned default (US+AU, matching the confirmed target market), to be replaced by real
+  Buffer/Instagram Insights data once there's enough post history to read it.
+
+**Implementation note:** Buffer's GraphQL API has **no mutation to change a channel's
+auto-queue posting-schedule slots** (checked via `introspect_schema` — `Mutation` has no
+channel-schedule field at all). The daily workflow must therefore set an explicit `dueAt` with
+`mode: customScheduled` for each post (computed from the day's run time to the next occurrence
+of Slot A / Slot B in UTC) rather than relying on `mode: addToQueue`'s channel-level auto-slots,
+which are unrelated to this schedule and were never actually configured for Ivy specifically —
+they're Buffer's own generic per-channel suggestions. **Not yet implemented** — today's
+one-off "first send" scheduling was done by hand against the specific Slot A/B times above,
+not through the workflow.
+
+## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.
 - First owner review from the test (2026-09-30, informal, in chat, on the 4 test clips —
