@@ -46,6 +46,18 @@ PROMPT_RULES = """Hard rules for every "generation_prompt" you write:
   exactly as shown across the reference images, then move straight to the new scene — never
   "reimagine" or "reinterpret" the person.
 - Keep it to one clear scene per image; avoid multi-panel or composite instructions.
+- AUTHENTICITY (feedback from Iddo, 2026-09-30 — a too-perfect/empty background reads as
+  fake): the setting must look like a real candid moment, not a staged photoshoot. Include at
+  least one grounding imperfection — a person or two faintly visible in the background (out of
+  focus, going about their day), natural background clutter/imperfection, or a shallow-depth-
+  of-field blur on the background — and avoid describing picture-perfect, deserted, magazine-
+  cover framing.
+- LOCATION CONTINUITY (feedback from Iddo, 2026-09-30): Ivy is based in Australia (Byron Bay /
+  Sydney — see the persona's "Content world"). Default every day's setting to Australia unless
+  you were explicitly told this batch is a specific travel arc (e.g. "5-day Bali trip") — in
+  that case ALL days in the batch must stay consistent with that one destination, framed as a
+  real trip (arrival/exploring/local-life beats), not a different country each day with no
+  narrative. Never invent a new country for a single unrelated day.
 """
 
 
