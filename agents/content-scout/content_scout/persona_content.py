@@ -30,7 +30,10 @@ with exactly this shape:
     {
       "generation_prompt": "the full Higgsfield generation prompt text for one image",
       "caption": "the social caption to post alongside it, in the persona's voice",
-      "hashtags": ["3-6 short hashtags, no # symbol"]
+      "hashtags": ["3-6 short hashtags, no # symbol"],
+      "story_text": "a short (<=15 words), casual, in-the-moment line for an Instagram Story \
+overlay on the SAME image — different tone from the feed caption: like a quick aside to a \
+friend, not a polished post. Can be a question, a one-liner, or a mini poll prompt. No hashtags."
     }
   ]
 }

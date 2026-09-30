@@ -5,6 +5,7 @@
 //
 // Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"
 //   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
+//   [--post-type post|story]  (story is Instagram-only; ignored/invalid for other platforms)
 //
 // Requires BUFFER_API_KEY in the environment. If SUPABASE_URL +
 // SUPABASE_SERVICE_ROLE_KEY are also set, records the draft as a row in
@@ -57,9 +58,16 @@ async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPost
 }
 
 async function main() {
-  const { channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId } = parseArgs(process.argv.slice(2))
+  const {
+    channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
+    'post-type': postType = 'post',
+  } = parseArgs(process.argv.slice(2))
   if (!channel || !image || !text) {
     console.error('Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"')
+    process.exit(1)
+  }
+  if (postType === 'story' && platform !== 'instagram') {
+    console.error(`--post-type story is Instagram-only, got platform "${platform}"`)
     process.exit(1)
   }
 
@@ -77,9 +85,11 @@ async function main() {
   `
   // Instagram's Buffer API requires metadata.instagram.type + shouldShareToFeed on every
   // post (confirmed via the Buffer MCP's introspect_schema — "Invalid post: Instagram
-  // posts require a type" otherwise). A plain feed image is type "post"; TikTok has no
-  // such required metadata.
-  const metadata = platform === 'instagram' ? { instagram: { type: 'post', shouldShareToFeed: true } } : undefined
+  // posts require a type" otherwise). A plain feed image is type "post"; a Story is type
+  // "story" and must NOT also share to the feed. TikTok has no such required metadata.
+  const metadata = platform === 'instagram'
+    ? { instagram: postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: 'post', shouldShareToFeed: true } }
+    : undefined
 
   const variables = {
     input: {
