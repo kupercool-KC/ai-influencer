@@ -128,6 +128,7 @@ jobs:
             CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
             HASHTAGS=$(jq -r '.days['"$i"'].hashtags | map("#" + .) | join(" ")' "$PLAN_FILE")
             FULL_CAPTION="$CAPTION"$'\n\n'"$HASHTAGS"
+            STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
 
             echo "--- Day $i ---"
             # nano_banana_pro with multiple angle references (up to 14 allowed; using the
@@ -151,6 +152,11 @@ jobs:
             pushd ../dispatch > /dev/null
             node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale
             node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale
+            # Instagram Story draft, same day's image, casual overlay text — MVP: reuses
+            # the 4:5 feed image rather than a dedicated 9:16 story asset (follow-up item).
+            if [ -n "$STORY_TEXT" ]; then
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story
+            fi
             popd > /dev/null
           done
 
