@@ -7,6 +7,10 @@
 //   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
 //   [--post-type post|story]  (story is Instagram-only; ignored/invalid for other platforms)
 //   [--audio-mood "<vibe words>"]  (Instagram Stories only — see pickInstagramAudio below)
+//   [--run-id <id>] [--scheduled-for <iso8601>]  (recorded on the scheduled_dispatches row —
+//   run-id groups one day's drafts for the Telegram "Approve" button in api/telegram/webhook.js;
+//   scheduled-for is OUR intended send time, not yet applied to Buffer — the draft stays a plain
+//   draft until approved, at which point the webhook re-submits it with this as its real dueAt)
 //
 // Requires BUFFER_API_KEY in the environment. If SUPABASE_URL +
 // SUPABASE_SERVICE_ROLE_KEY are also set, records the draft as a row in
@@ -71,7 +75,7 @@ async function pickInstagramAudio(channelId, mood) {
   }
 }
 
-async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId }) {
+async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId, runId, scheduledFor }) {
   const url = process.env.SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key || !platform) return // optional — skip quietly if not configured
@@ -89,6 +93,8 @@ async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPost
       media_asset_id: mediaAssetId || null,
       platform,
       buffer_post_id: bufferPostId,
+      run_id: runId || null,
+      scheduled_for: scheduledFor || null,
       status: 'pending', // it's a draft in Buffer, not yet published
     }),
   }).catch(e => console.error('Warning: failed to record scheduled_dispatch:', e.message))
@@ -98,6 +104,7 @@ async function main() {
   const {
     channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
     'post-type': postType = 'post', 'audio-mood': audioMood,
+    'run-id': runId, 'scheduled-for': scheduledFor,
   } = parseArgs(process.argv.slice(2))
   if (!channel || !image || !text) {
     console.error('Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"')
@@ -155,7 +162,7 @@ async function main() {
     process.exit(1)
   }
   console.log(`Draft created: post id ${result.post.id}`)
-  await recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId: result.post.id })
+  await recordDispatch({ influencerId, mediaAssetId, platform, bufferPostId: result.post.id, runId, scheduledFor })
 }
 
 main().catch(e => { console.error(e.message); process.exit(1) })

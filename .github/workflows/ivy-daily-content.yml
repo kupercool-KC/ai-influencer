@@ -148,12 +148,16 @@ jobs:
           COUNT=$(jq '.days | length' "$PLAN_FILE")
           TEXT="✍️ Generator: wrote $COUNT day(s) of content."
           for i in $(seq 0 $((COUNT - 1))); do
+            IMG_PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
+            STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
             CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
             STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
             REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
-            TEXT="$TEXT"$'\n\n'"Day $i feed: \"$CAPTION\""
-            [ -n "$STORY_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i story: \"$STORY_TEXT\""
-            [ -n "$REMINDER_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i reminder: \"$REMINDER_TEXT\""
+            TEXT="$TEXT"$'\n\n'"Day $i feed image prompt: $IMG_PROMPT"
+            TEXT="$TEXT"$'\n'"Day $i feed caption: \"$CAPTION\""
+            [ -n "$STORY_PROMPT" ] && TEXT="$TEXT"$'\n\n'"Day $i story image prompt: $STORY_PROMPT"
+            [ -n "$STORY_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i story text: \"$STORY_TEXT\""
+            [ -n "$REMINDER_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i reminder text: \"$REMINDER_TEXT\""
           done
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
@@ -171,7 +175,24 @@ jobs:
           COUNT=$(jq '.days | length' "$PLAN_FILE")
           echo "Generating $COUNT day(s) of content..."
 
+          # Posting cadence (spec §12): Slot A (feed + candid story) = next AU morning /
+          # US evening window; Slot B (reminder story, the day after Slot A) = US morning
+          # peak window. These are stored on the row as OUR intended send time only — the
+          # draft stays a plain Buffer draft until approved via Telegram (see the Dispatcher
+          # confirmation step below and api/telegram/webhook.js's approve_ivy: handler).
+          NOW_EPOCH=$(date -u +%s)
+          TODAY_SLOT_A_EPOCH=$(date -u -d "$(date -u +%F) 21:00" +%s)
+          if [ "$NOW_EPOCH" -lt "$TODAY_SLOT_A_EPOCH" ]; then
+            BASE_SLOT_A_DATE=$(date -u +%F)
+          else
+            BASE_SLOT_A_DATE=$(date -u -d "+1 day" +%F)
+          fi
+
           for i in $(seq 0 $((COUNT - 1))); do
+            SLOT_A_DATE=$(date -u -d "$BASE_SLOT_A_DATE +$i day" +%F)
+            SLOT_B_DATE=$(date -u -d "$SLOT_A_DATE +1 day" +%F)
+            SLOT_A="${SLOT_A_DATE}T21:00:00+00:00"
+            SLOT_B="${SLOT_B_DATE}T11:00:00+00:00"
             PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
             CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
             HASHTAGS=$(jq -r '.days['"$i"'].hashtags | map("#" + .) | join(" ")' "$PLAN_FILE")
@@ -214,10 +235,11 @@ jobs:
               echo "Day $i story image: $STORY_IMAGE_URL"
             fi
 
+            RUN_ID="${{ steps.scout.outputs.run_id }}"
             DISPATCH_LOG="$RUN_DIR/dispatch_log.txt"
             pushd ../dispatch > /dev/null
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
             # Two Instagram Stories/day: (1) a genuinely new candid Story moment, (2) a quick
             # "go see my new post" nudge reusing the feed image — see persona_content.py's
             # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
@@ -226,10 +248,10 @@ jobs:
             # to audio_mood via Buffer's searchInstagramAudio, falling back to trending) — see
             # create-draft.mjs's pickInstagramAudio. Not possible for TikTok (§11 in the spec).
             if [ -n "$STORY_IMAGE_URL" ] && [ -n "$STORY_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$STORY_AUDIO_MOOD" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$STORY_AUDIO_MOOD" --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
             fi
             if [ -n "$POST_REMINDER_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$REMINDER_AUDIO_MOOD" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$REMINDER_AUDIO_MOOD" --run-id "$RUN_ID" --scheduled-for "$SLOT_B" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
             fi
             popd > /dev/null
           done
@@ -250,7 +272,8 @@ jobs:
           fi
           TEXT="📮 Dispatcher: $CREATED draft(s) created in Buffer (feed post + TikTok + Stories)."
           [ "$ERRORS" != "0" ] && TEXT="$TEXT"$'\n'"⚠️ $ERRORS warning(s)/error(s) — check the run log."
-          TEXT="$TEXT"$'\n\n'"Nothing was auto-published — review and approve in Buffer when ready."
+          TEXT="$TEXT"$'\n\n'"Nothing is scheduled yet — tap Approve to schedule everything at the times in the spec (§12), or open Buffer to change anything first."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
+                  '{chat_id:$chat_id, text:$text, reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
