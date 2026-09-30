@@ -62,6 +62,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             niche=args.niche,
             platforms=platforms,
             instagram_accounts=args.instagram_accounts,
+            tiktok_accounts=args.tiktok_accounts,
             per_platform_limit=args.per_platform_limit,
             since_days=args.since_days,
             recency_half_life_days=args.recency_half_life_days,
@@ -281,6 +282,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated Instagram usernames/profile URLs to watch (Instagram needs specific "
         "accounts, not a keyword — see platforms/instagram.py). Falls back to --niche if omitted.",
+    )
+    p_run.add_argument(
+        "--tiktok-accounts",
+        default=None,
+        help="Comma-separated TikTok usernames to watch via Apify's 'profiles' input (account-based, "
+        "like --instagram-accounts) instead of the default --niche keyword/hashtag search.",
     )
     p_run.add_argument("--per-platform-limit", type=int, default=20)
     p_run.add_argument("--since-days", type=int, default=14)
