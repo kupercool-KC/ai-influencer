@@ -41,9 +41,14 @@ post. Can be a question, a one-liner, or a mini poll prompt. No hashtags.",
       "post_reminder_text": "a very short (<=10 words), casual line for a SECOND Story that \
 reuses the SAME feed image/moment to nudge followers to the new feed post — e.g. \"new post is \
 up, go check it out\" in the persona's own voice. Not a repeat of the feed caption.",
-      "audio_mood": "2-4 words describing a real song vibe that would fit the Story's mood/moment \
-(e.g. \"chill acoustic morning\", \"upbeat summer pop\") — used to search Instagram's actual \
-trending-audio catalog, so keep it to a genre/mood description, not a specific made-up song title"
+      "story_audio_mood": "2-4 words describing a real song vibe that matches the CANDID story's \
+specific scene/moment (e.g. a sunrise stretch -> \"chill acoustic morning\", a rooftop city \
+moment -> \"upbeat city pop\") — used to search Instagram's actual trending-audio catalog, so \
+keep it to a genre/mood description, not a specific made-up song title",
+      "reminder_audio_mood": "2-4 words for a DIFFERENT song vibe for the post-reminder story — \
+this one is a quick attention-grabbing nudge, not a narrative moment, so lean toward something \
+catchy/upbeat that works as a short attention-grab regardless of the feed image's own mood \
+(e.g. \"upbeat feel-good pop\") rather than matching the scene"
     }
   ]
 }
