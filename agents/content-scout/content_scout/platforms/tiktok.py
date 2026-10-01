@@ -12,6 +12,7 @@ touching the rest of the pipeline.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -20,6 +21,22 @@ from content_scout.models import RawVideo
 from content_scout.platforms.base import register
 
 ACTOR_ID = "clockworks/tiktok-scraper"
+
+# A plain keyword/niche query ("ivy vale coastal wellness") always contains a space; TikTok
+# handles never do. That's enough to tell --tiktok-accounts's comma list apart from the
+# default free-text niche without adding a second parameter through the discover() interface
+# every registered platform shares — same "one string, sniff its shape" approach as
+# instagram.py's `_parse_accounts`, which has the same constraint for the same reason.
+_HANDLE_RE = re.compile(r"^[A-Za-z0-9_.]+$")
+
+
+def _parse_accounts(niche: str) -> list[str] | None:
+    """Return usernames if every comma-separated token looks like a TikTok handle (no
+    spaces), else None to signal "treat as a free-text search query instead"."""
+    tokens = [t.strip().lstrip("@") for t in niche.split(",") if t.strip()]
+    if tokens and all(_HANDLE_RE.match(t) for t in tokens):
+        return tokens
+    return None
 
 
 def _first_present(item: dict[str, Any], *dotted_paths: str) -> Any:
@@ -49,8 +66,8 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
     token = settings.require_apify()
     client = ApifyClient(token)
 
+    accounts = _parse_accounts(niche)
     run_input = {
-        "searchQueries": [niche],
         "resultsPerPage": max(limit, 1),
         "shouldDownloadVideos": True,
         "shouldDownloadSubtitles": True,
@@ -59,6 +76,7 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
         "shouldDownloadMusicCovers": False,
         "excludePinnedPosts": True,
         "proxyCountryCode": "None",
+        **({"profiles": accounts} if accounts else {"searchQueries": [niche]}),
     }
     run = client.actor(ACTOR_ID).call(run_input=run_input)
     dataset_id = run["defaultDatasetId"]

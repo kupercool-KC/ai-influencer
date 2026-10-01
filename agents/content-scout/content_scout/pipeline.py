@@ -136,6 +136,7 @@ def run_pipeline(
     niche: str,
     platforms: list[str],
     instagram_accounts: str | None = None,
+    tiktok_accounts: str | None = None,
     per_platform_limit: int = 20,
     since_days: int = 14,
     recency_half_life_days: float = 30.0,
@@ -178,7 +179,14 @@ def run_pipeline(
         # Instagram's hashtag/keyword search now requires a login we deliberately don't use
         # (see content_scout/platforms/instagram.py) — it takes specific account handles
         # instead, which is a different kind of input than TikTok/YouTube's niche keyword.
-        query = instagram_accounts if platform == "instagram" and instagram_accounts else niche
+        # TikTok accounts are optional (platforms/tiktok.py auto-detects a handle list vs a
+        # free-text query) — pass --tiktok-accounts to pin specific creators like Instagram.
+        if platform == "instagram" and instagram_accounts:
+            query = instagram_accounts
+        elif platform == "tiktok" and tiktok_accounts:
+            query = tiktok_accounts
+        else:
+            query = niche
         try:
             selected = _discover_and_rank(platform, query, settings, since_days, per_platform_limit, recency_half_life_days)
         except Exception as exc:  # noqa: BLE001

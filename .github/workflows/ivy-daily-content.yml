@@ -89,12 +89,14 @@ jobs:
         id: scout
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: |
           set -e
           OUT=$(python -m content_scout.cli run \
             --niche "ivy vale coastal wellness" \
-            --platforms instagram \
+            --platforms instagram,tiktok \
             --instagram-accounts "nika_yammys,milena_milenko,sophiebatzloff" \
+            --tiktok-accounts "millane,chiaraking,sydneyschiffer,ell_turner" \
             --since-days 14 \
             --per-platform-limit 36)
           echo "$OUT"
