@@ -245,9 +245,19 @@ jobs:
 
             RUN_ID="${{ steps.scout.outputs.run_id }}"
             DISPATCH_LOG="$RUN_DIR/dispatch_log.txt"
+
+            # TikTok rejects the feed image as-is: it's 1856x2304 (4:5, 2k) =
+            # 4,276,224px, over TikTok's 2,073,600px cap (confirmed live via a
+            # Buffer "Invalid post" error — every TikTok draft was silently
+            # failing to ever get created). Route it through api/img-proxy's
+            # fit=tiktok resize instead of generating a second Higgsfield
+            # image, so the TikTok draft gets the same shot, downscaled to fit.
+            ENC_IMAGE_URL=$(printf '%s' "$IMAGE_URL" | jq -sRr @uri)
+            TIKTOK_IMAGE_URL="https://ai-influencer-lovat.vercel.app/api/img-proxy?fit=tiktok&url=${ENC_IMAGE_URL}"
+
             pushd ../dispatch > /dev/null
             node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$TIKTOK_IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
             # Two Instagram Stories/day: (1) a genuinely new candid Story moment, (2) a quick
             # "go see my new post" nudge reusing the feed image — see persona_content.py's
             # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
