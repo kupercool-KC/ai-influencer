@@ -43,6 +43,15 @@ env:
   IVY_REFERENCES: "../../docs/personas/Ivy Vale/soul-training/01-front-smile.jpg,../../docs/personas/Ivy Vale/soul-training/05-threequarter-right-golden.jpg,../../docs/personas/Ivy Vale/soul-training/04-profile-overcast.jpg"
   BUFFER_CHANNEL_INSTAGRAM: "6aaff65cea19ca0bde976b01"
   BUFFER_CHANNEL_TIKTOK: "6aaff5bdea19ca0bde975a46"
+  # Daily pipeline notifications go to the "AI Influencer Studio" Forum group's existing
+  # per-agent Topics (2026-10-01, per Iddo), not the bot's DM — Scout+Analysis share the
+  # Scout topic (both are research output), Generator and Dispatcher get their own. Thread
+  # ids came from each Topic's "Copy Link" (https://t.me/c/4305763915/<id>) since Telegram
+  # only records a Topic's name in our DB at creation/rename, and these predate that code.
+  TELEGRAM_IVY_CHAT_ID: "-1004305763915"
+  TELEGRAM_SCOUT_THREAD_ID: "3"
+  TELEGRAM_GENERATOR_THREAD_ID: "6"
+  TELEGRAM_DISPATCH_THREAD_ID: "7"
 
 jobs:
   content:
@@ -92,11 +101,37 @@ jobs:
           RUN_ID=$(echo "$OUT" | grep -oE "Run '[^']+'" | head -1 | sed "s/Run '//;s/'//")
           if [ -z "$RUN_ID" ]; then echo "Could not parse run id from scout output" >&2; exit 1; fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          VIDEO_LINE=$(echo "$OUT" | grep -oE "[0-9]+ video\(s\) selected" | head -1)
+          echo "video_line=${VIDEO_LINE:-videos selected (count unavailable)}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Telegram — Scout findings
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          TEXT="🔍 Scout: scanned nika_yammys, milena_milenko, sophiebatzloff (IG) + millane, chiaraking, sydneyschiffer, ell_turner (TikTok), last 14 days — ${{ steps.scout.outputs.video_line }}."
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
 
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m content_scout.cli analyze --run-id "${{ steps.scout.outputs.run_id }}"
+
+      - name: Notify Telegram — Analysis
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          SUMMARY_FILE="data/runs/${{ steps.scout.outputs.run_id }}/telegram_summary.txt"
+          if [ -f "$SUMMARY_FILE" ]; then
+            BODY=$(cat "$SUMMARY_FILE")
+          else
+            BODY="(no analyzed videos this run — writing from the persona profile alone)"
+          fi
+          TEXT="🧠 Analysis:"$'\n\n'"$BODY"
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
 
       - name: Plan — turn findings into this run's day(s) of Ivy content
         env:
@@ -111,6 +146,29 @@ jobs:
           echo "--- content_plan.json ---"
           cat "data/runs/${{ steps.scout.outputs.run_id }}/content_plan.json"
 
+      - name: Notify Telegram — Generator's plan
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          PLAN_FILE="data/runs/${{ steps.scout.outputs.run_id }}/content_plan.json"
+          COUNT=$(jq '.days | length' "$PLAN_FILE")
+          TEXT="✍️ Generator: wrote $COUNT day(s) of content."
+          for i in $(seq 0 $((COUNT - 1))); do
+            IMG_PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
+            STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
+            CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
+            STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
+            REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
+            TEXT="$TEXT"$'\n\n'"Day $i feed image prompt: $IMG_PROMPT"
+            TEXT="$TEXT"$'\n'"Day $i feed caption: \"$CAPTION\""
+            [ -n "$STORY_PROMPT" ] && TEXT="$TEXT"$'\n\n'"Day $i story image prompt: $STORY_PROMPT"
+            [ -n "$STORY_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i story text: \"$STORY_TEXT\""
+            [ -n "$REMINDER_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i reminder text: \"$REMINDER_TEXT\""
+          done
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_GENERATOR_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
+
       - name: Generate each day's image and queue Buffer drafts
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
@@ -123,12 +181,33 @@ jobs:
           COUNT=$(jq '.days | length' "$PLAN_FILE")
           echo "Generating $COUNT day(s) of content..."
 
+          # Posting cadence (spec §12): Slot A (feed + candid story) = next AU morning /
+          # US evening window; Slot B (reminder story, the day after Slot A) = US morning
+          # peak window. These are stored on the row as OUR intended send time only — the
+          # draft stays a plain Buffer draft until approved via Telegram (see the Dispatcher
+          # confirmation step below and api/telegram/webhook.js's approve_ivy: handler).
+          NOW_EPOCH=$(date -u +%s)
+          TODAY_SLOT_A_EPOCH=$(date -u -d "$(date -u +%F) 21:00" +%s)
+          if [ "$NOW_EPOCH" -lt "$TODAY_SLOT_A_EPOCH" ]; then
+            BASE_SLOT_A_DATE=$(date -u +%F)
+          else
+            BASE_SLOT_A_DATE=$(date -u -d "+1 day" +%F)
+          fi
+
           for i in $(seq 0 $((COUNT - 1))); do
+            SLOT_A_DATE=$(date -u -d "$BASE_SLOT_A_DATE +$i day" +%F)
+            SLOT_B_DATE=$(date -u -d "$SLOT_A_DATE +1 day" +%F)
+            SLOT_A="${SLOT_A_DATE}T21:00:00+00:00"
+            SLOT_B="${SLOT_B_DATE}T11:00:00+00:00"
             PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
             CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
             HASHTAGS=$(jq -r '.days['"$i"'].hashtags | map("#" + .) | join(" ")' "$PLAN_FILE")
             FULL_CAPTION="$CAPTION"$'\n\n'"$HASHTAGS"
+            STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
             STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
+            POST_REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
+            STORY_AUDIO_MOOD=$(jq -r ".days[$i].story_audio_mood // empty" "$PLAN_FILE")
+            REMINDER_AUDIO_MOOD=$(jq -r ".days[$i].reminder_audio_mood // empty" "$PLAN_FILE")
 
             echo "--- Day $i ---"
             # nano_banana_pro with multiple angle references (up to 14 allowed; using the
@@ -149,31 +228,57 @@ jobs:
               --wait --wait-timeout 5m)
             echo "Day $i image: $IMAGE_URL"
 
+            # Second image: a dedicated 9:16 Story shot — a different candid moment from the
+            # feed image, not a crop of it (see persona_content.py's story_prompt guidance).
+            STORY_IMAGE_URL=""
+            if [ -n "$STORY_PROMPT" ]; then
+              STORY_IMAGE_URL=$(higgsfield generate create nano_banana_pro \
+                --prompt "$STORY_PROMPT" \
+                "${REF_FLAGS[@]}" \
+                --aspect_ratio 9:16 \
+                --resolution 2k \
+                --wait --wait-timeout 5m)
+              echo "Day $i story image: $STORY_IMAGE_URL"
+            fi
+
+            RUN_ID="${{ steps.scout.outputs.run_id }}"
+            DISPATCH_LOG="$RUN_DIR/dispatch_log.txt"
             pushd ../dispatch > /dev/null
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale
-            # Instagram Story draft, same day's image, casual overlay text — MVP: reuses
-            # the 4:5 feed image rather than a dedicated 9:16 story asset (follow-up item).
-            if [ -n "$STORY_TEXT" ]; then
-              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            # Two Instagram Stories/day: (1) a genuinely new candid Story moment, (2) a quick
+            # "go see my new post" nudge reusing the feed image — see persona_content.py's
+            # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
+            # native post-share sticker (that mechanic isn't exposed by the API Buffer uses).
+            # Both Stories get real Instagram trending audio attached automatically (matched
+            # to audio_mood via Buffer's searchInstagramAudio, falling back to trending) — see
+            # create-draft.mjs's pickInstagramAudio. Not possible for TikTok (§11 in the spec).
+            if [ -n "$STORY_IMAGE_URL" ] && [ -n "$STORY_TEXT" ]; then
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$STORY_IMAGE_URL" --text "$STORY_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$STORY_AUDIO_MOOD" --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            fi
+            if [ -n "$POST_REMINDER_TEXT" ]; then
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$POST_REMINDER_TEXT" --platform instagram --influencer ivy-vale --post-type story --audio-mood "$REMINDER_AUDIO_MOOD" --run-id "$RUN_ID" --scheduled-for "$SLOT_B" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
             fi
             popd > /dev/null
           done
 
-      - name: Notify Telegram
+      - name: Notify Telegram — Dispatcher confirmation
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         run: |
-          SUMMARY_FILE="data/runs/${{ steps.scout.outputs.run_id }}/telegram_summary.txt"
-          if [ -f "$SUMMARY_FILE" ]; then
-            TEXT=$(cat "$SUMMARY_FILE")
+          LOG_FILE="data/runs/${{ steps.scout.outputs.run_id }}/dispatch_log.txt"
+          if [ -f "$LOG_FILE" ]; then
+            CREATED=$(grep -c "Draft created" "$LOG_FILE" || true)
+            ERRORS=$(grep -c "Buffer error\|Warning:" "$LOG_FILE" || true)
           else
-            TEXT="Ivy daily content run finished — no scout summary available (check the run log)."
+            CREATED=0
+            ERRORS="? (log missing — check the run)"
           fi
-          TEXT="$TEXT"$'\n\n'"📝 New Buffer draft(s) are waiting for your review — nothing was auto-published."
+          TEXT="📮 Dispatcher: $CREATED draft(s) created in Buffer (feed post + TikTok + Stories)."
+          [ "$ERRORS" != "0" ] && TEXT="$TEXT"$'\n'"⚠️ $ERRORS warning(s)/error(s) — check the run log."
+          TEXT="$TEXT"$'\n\n'"Nothing is scheduled yet — tap Approve to schedule everything at the times in the spec (§12), or open Buffer to change anything first."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" \
-                  '{chat_id:$chat_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_DISPATCH_THREAD_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
+                  '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"

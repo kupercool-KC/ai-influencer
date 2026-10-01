@@ -244,7 +244,98 @@ generation only if it creates or retires a learning.
   Higgsfield before choosing it over 2.0.
 - Reddit threads could only be read as search excerpts (full pages blocked to our tools).
 
-## 11. Open items
+## 11. Instagram Stories strategy (added 2026-09-30)
+
+Two Stories per day, Instagram only (not TikTok — Buffer's Story post type is Instagram-
+specific), both DRAFT-only same as feed posts:
+
+1. **A genuinely new candid Story moment** — a dedicated 9:16 image (`story_prompt`), not a
+   crop of the feed image. Research (Sprout Social, Hootsuite, SocialPilot, 2026 guides):
+   Stories work best as behind-the-scenes/in-the-moment content, not a repost of feed-quality
+   polish; a specific, identity-relevant question in the overlay text draws replies better
+   than a generic caption; the first Story of the day matters most (it's what shows first in
+   a follower's tray). `story_text` should read like a quick aside to a friend.
+2. **A "new post" nudge** — reuses the SAME feed image with a short, casual line
+   (`post_reminder_text`) pointing at today's feed post. **Real limitation, checked against
+   Buffer's GraphQL schema (`introspect_schema`)**: Instagram's native "share this post to
+   your Story" button creates a tappable thumbnail sticker that deep-links straight to the
+   post — that exact mechanic is an in-app-only feature of Instagram itself, not exposed by
+   the Graph API Buffer schedules through (Buffer's `metadata.instagram` only has `type`,
+   `shouldShareToFeed`, `link` (an arbitrary external URL, not an internal post link),
+   `geolocation`, and `stickerFields.text`). Posting the same image again with a short nudge
+   caption is the closest automatable equivalent — it is not the real "shared post" sticker,
+   and can't become one without a human manually tapping Share on the live post in the app.
+
+Implementation: `persona_content.py` generates `story_prompt` + `story_text` +
+`post_reminder_text` per day (same identity-lock rules as the feed prompt — see §PROMPT_RULES
+in code). `ivy-daily-content.yml` renders the Story image via a second `nano_banana_pro` call
+(`--aspect_ratio 9:16`, same identity references, +2 credits/day) and queues both Stories via
+`create-draft.mjs --post-type story`.
+
+**Music (added 2026-09-30, per Iddo's request — must be automatic, not a manual step).**
+Checked Buffer's GraphQL schema (`introspect_schema`) directly rather than assuming:
+- **Instagram: real, automatable.** Buffer exposes `searchInstagramAudio` / `trendingInstagramAudio`
+  queries (return real catalog tracks: id, title, artist, preview) and an
+  `InstagramStickerFields.music` field on `metadata.instagram`. `persona_content.py` writes an
+  `audio_mood` per day (a genre/vibe phrase, not a made-up song title);
+  `create-draft.mjs`'s `pickInstagramAudio()` searches that mood against the real catalog,
+  falls back to trending if no match, and attaches the track's id to both Stories. Feed
+  **posts** (still images) don't get music — Instagram doesn't play audio on static feed
+  photos, only Stories/Reels.
+- **TikTok: a real platform restriction, not a gap in our code.** TikTok's Content Posting
+  API does not accept a sound/song selection from third-party tools at all — confirmed via
+  web research (a draft posted without a `song_clip_id` can't have one added later without
+  recreating the post, and no equivalent field exists in Buffer's schema for TikTok). There is
+  no automatable path here; if TikTok audio matters, it has to be chosen manually inside
+  TikTok's own app before/while publishing — that limitation is platform-side, not ours.
+
+## 12. Posting cadence & schedule (added 2026-09-30)
+
+**Internal sources checked first — neither has a clock-time answer.** `AI_Influencer_Portfolio.docx`
+and `AI_Influencers_Market_Research.docx` (the two source documents this whole spec is built on)
+both say only "post daily" / "daily posting cadence" — no time-of-day guidance, no audience
+timezone. This section fills that gap with external research, per Iddo's direction.
+
+**Target market (confirmed with Iddo, 2026-09-30): US + Australia.** Ivy's persona is
+Australian (Byron Bay/Sydney), but the Portfolio doc's actual target audience for this
+character archetype is "Women 18-34, wellness & self-improvement seekers" with a
+brand-deal/subscription business model — that economics points at the US as the larger
+practical market, while Ivy's own backstory points at Australia. We serve both rather than
+picking one, using the two Stories we already produce per day (see §11) instead of forcing a
+single compromise time:
+
+| Slot | UTC | Australia (AEST, UTC+10*) | US (ET, UTC-4*) | What goes out | Why this slot |
+|---|---|---|---|---|---|
+| **A** | 21:00 | 07:00 (next day) | 17:00 (same day) | Feed post + Story 1 (candid) | Matches AU's actual morning — authentic for "just happened" content — and lands in the US's 5–9pm wind-down/relaxation window (strong secondary fit per research) |
+| **B** | 11:00 | 21:00 (same day) | 07:00 (same day) | Story 2 (reminder nudge) | Hits the US's peak 6–9am morning-scroll window (its highest-engagement slot for wellness content); a text nudge doesn't need scene-authenticity the way Slot A's candid moment does |
+
+*Australia observes DST (AEDT, UTC+11) from the first Sunday of October — these UTC offsets
+shift by an hour twice a year; a fixed UTC cron will drift by an hour during the transition
+weeks unless it's DST-aware. Not fixed in code yet — see Open Items.
+
+**Research this is based on** (2026-09-30 web search, general + niche-specific):
+- Wellness/lifestyle Instagram: strongest window **6–8am** (Tue/Wed especially) for
+  morning-routine content; secondary window **5–9pm** for relaxation/mindfulness content.
+- Wellness/lifestyle TikTok: **6–9am** for motivation content, **9–11pm** for wind-down
+  content; general peak windows are 6–9am and 6–10pm local time.
+- Timezone principle (near-universal across sources): **schedule to audience timezone, not
+  creator or operator timezone** — Ivy's fictional Australian home or Iddo's own Israel
+  timezone are both the wrong anchor; only the actual audience's clock matters. With zero real
+  followers yet, there's no analytics to confirm an actual audience split — the above is a
+  reasoned default (US+AU, matching the confirmed target market), to be replaced by real
+  Buffer/Instagram Insights data once there's enough post history to read it.
+
+**Implementation note:** Buffer's GraphQL API has **no mutation to change a channel's
+auto-queue posting-schedule slots** (checked via `introspect_schema` — `Mutation` has no
+channel-schedule field at all). The daily workflow must therefore set an explicit `dueAt` with
+`mode: customScheduled` for each post (computed from the day's run time to the next occurrence
+of Slot A / Slot B in UTC) rather than relying on `mode: addToQueue`'s channel-level auto-slots,
+which are unrelated to this schedule and were never actually configured for Ivy specifically —
+they're Buffer's own generic per-channel suggestions. **Not yet implemented** — today's
+one-off "first send" scheduling was done by hand against the specific Slot A/B times above,
+not through the workflow.
+
+## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.
 - First owner review from the test (2026-09-30, informal, in chat, on the 4 test clips —

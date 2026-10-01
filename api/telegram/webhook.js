@@ -36,6 +36,46 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, editMessageText, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool } from '../../lib/telegramTools.js'
+import { bufferQuery } from '../../lib/bufferClient.js'
+
+// One tap on the Ivy daily pipeline's "Approve & schedule" button (sent by
+// ivy-daily-content.yml's Dispatcher step) turns every DRAFT it created for
+// that run into a real customScheduled Buffer post at the time the workflow
+// already picked (scheduled_dispatches.scheduled_for, per docs/video-prompt-
+// spec.md §12's Slot A/B). Re-fetches each post's current text/assets/
+// metadata first because Buffer's editPost re-validates the whole post from
+// scratch rather than merging — dropping them would blank the post.
+async function approveIvyRun(runId) {
+  const db = supabaseAdmin()
+  const { data: rows, error } = await db.from('scheduled_dispatches').select('*').eq('run_id', runId).eq('status', 'pending')
+  if (error) throw new Error(`Supabase lookup failed: ${error.message}`)
+  if (!rows?.length) return { scheduled: 0, failures: ['no pending drafts found for this run — already approved, or run_id not recorded (check SUPABASE_URL/KEY are set on the workflow)'] }
+
+  let scheduled = 0
+  const failures = []
+  for (const row of rows) {
+    try {
+      const { post } = await bufferQuery(
+        `query($input: PostInput!) { post(input: $input) { text assets { ... on ImageAsset { image { url } } } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { music } } } } }`,
+        { input: { id: row.buffer_post_id } },
+      )
+      const imageUrl = post?.assets?.[0]?.image?.url
+      const metadata = post?.metadata?.type
+        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...(post.metadata.stickerFields?.music ? { stickerFields: { music: post.metadata.stickerFields.music } } : {}) } }
+        : undefined
+      const result = await bufferQuery(
+        `mutation($input: EditPostInput!) { editPost(input: $input) { ... on PostActionSuccess { post { id } } ... on MutationError { message } } }`,
+        { input: { id: row.buffer_post_id, text: post?.text, assets: imageUrl ? [{ image: { url: imageUrl } }] : [], mode: 'customScheduled', dueAt: row.scheduled_for, schedulingType: 'automatic', saveToDraft: false, ...(metadata ? { metadata } : {}) } },
+      )
+      if (result.editPost?.message) throw new Error(result.editPost.message)
+      await db.from('scheduled_dispatches').update({ status: 'scheduled', updated_at: new Date().toISOString() }).eq('id', row.id)
+      scheduled++
+    } catch (e) {
+      failures.push(`${row.platform}: ${e.message}`)
+    }
+  }
+  return { scheduled, failures }
+}
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
 
@@ -194,12 +234,17 @@ async function fetchContextDoc() {
 // scope" lines above: Code physically cannot call update_scheduled_dispatch,
 // Dispatch physically cannot call propose_code_change, etc. Chat alone gets
 // everything, since it's the one general-purpose tab/topic.
+// Every topic gets every tool (2026-10-01, per Iddo: "all actions in all chats except
+// deletes") — none of TOOLS actually deletes anything (no delete_* tool exists at all), so
+// granting the full set everywhere already satisfies that with no separate exclusion list to
+// maintain. The AGENT_CONTEXT prompt per mode still keeps each topic narrowly scoped in what
+// it *talks about*; this only widens what it's *capable of* if asked to act outside that lane.
 const TOOLS_BY_MODE = {
-  scout: ['list_influencers', 'get_influencer', 'list_activity_logs', 'add_activity_log'],
-  generate: ['list_influencers', 'get_influencer', 'update_influencer_data', 'list_media_assets', 'list_activity_logs', 'add_activity_log'],
-  dispatch: ['list_influencers', 'list_media_assets', 'list_scheduled_dispatches', 'update_scheduled_dispatch', 'list_activity_logs', 'add_activity_log'],
-  code: ['propose_code_change'],
-  chat: TOOLS.map(t => t.name), // every tool, including run_code
+  scout: TOOLS.map(t => t.name),
+  generate: TOOLS.map(t => t.name),
+  dispatch: TOOLS.map(t => t.name),
+  code: TOOLS.map(t => t.name),
+  chat: TOOLS.map(t => t.name),
 }
 
 function toolsForMode(mode) {
@@ -362,6 +407,20 @@ export default async function handler(req, res) {
       const cbChatId = cq.message.chat.id
       if (allowed.size && !allowed.has(String(cbChatId))) {
         await answerCallbackQuery(cq.id, '')
+        return res.status(200).end()
+      }
+
+      if ((cq.data || '').startsWith('approve_ivy:')) {
+        const runId = cq.data.slice('approve_ivy:'.length)
+        await answerCallbackQuery(cq.id, 'Scheduling…')
+        try {
+          const { scheduled, failures } = await approveIvyRun(runId)
+          const summary = `✅ Approved — ${scheduled} post(s)/story(ies) scheduled.` +
+            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).join('\n')}` : '')
+          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n${summary}`, { reply_markup: { inline_keyboard: [] } })
+        } catch (e) {
+          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n❌ Approve failed: ${e.message}`, { reply_markup: { inline_keyboard: [] } })
+        }
         return res.status(200).end()
       }
 
