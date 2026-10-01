@@ -234,12 +234,17 @@ async function fetchContextDoc() {
 // scope" lines above: Code physically cannot call update_scheduled_dispatch,
 // Dispatch physically cannot call propose_code_change, etc. Chat alone gets
 // everything, since it's the one general-purpose tab/topic.
+// Every topic gets every tool (2026-10-01, per Iddo: "all actions in all chats except
+// deletes") — none of TOOLS actually deletes anything (no delete_* tool exists at all), so
+// granting the full set everywhere already satisfies that with no separate exclusion list to
+// maintain. The AGENT_CONTEXT prompt per mode still keeps each topic narrowly scoped in what
+// it *talks about*; this only widens what it's *capable of* if asked to act outside that lane.
 const TOOLS_BY_MODE = {
-  scout: ['list_influencers', 'get_influencer', 'list_activity_logs', 'add_activity_log'],
-  generate: ['list_influencers', 'get_influencer', 'update_influencer_data', 'list_media_assets', 'list_activity_logs', 'add_activity_log'],
-  dispatch: ['list_influencers', 'list_media_assets', 'list_scheduled_dispatches', 'update_scheduled_dispatch', 'list_activity_logs', 'add_activity_log'],
-  code: ['propose_code_change'],
-  chat: TOOLS.map(t => t.name), // every tool, including run_code
+  scout: TOOLS.map(t => t.name),
+  generate: TOOLS.map(t => t.name),
+  dispatch: TOOLS.map(t => t.name),
+  code: TOOLS.map(t => t.name),
+  chat: TOOLS.map(t => t.name),
 }
 
 function toolsForMode(mode) {

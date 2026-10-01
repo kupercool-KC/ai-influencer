@@ -43,6 +43,15 @@ env:
   IVY_REFERENCES: "../../docs/personas/Ivy Vale/soul-training/01-front-smile.jpg,../../docs/personas/Ivy Vale/soul-training/05-threequarter-right-golden.jpg,../../docs/personas/Ivy Vale/soul-training/04-profile-overcast.jpg"
   BUFFER_CHANNEL_INSTAGRAM: "6aaff65cea19ca0bde976b01"
   BUFFER_CHANNEL_TIKTOK: "6aaff5bdea19ca0bde975a46"
+  # Daily pipeline notifications go to the "AI Influencer Studio" Forum group's existing
+  # per-agent Topics (2026-10-01, per Iddo), not the bot's DM — Scout+Analysis share the
+  # Scout topic (both are research output), Generator and Dispatcher get their own. Thread
+  # ids came from each Topic's "Copy Link" (https://t.me/c/4305763915/<id>) since Telegram
+  # only records a Topic's name in our DB at creation/rename, and these predate that code.
+  TELEGRAM_IVY_CHAT_ID: "-1004305763915"
+  TELEGRAM_SCOUT_THREAD_ID: "3"
+  TELEGRAM_GENERATOR_THREAD_ID: "6"
+  TELEGRAM_DISPATCH_THREAD_ID: "7"
 
 jobs:
   content:
@@ -98,12 +107,11 @@ jobs:
       - name: Notify Telegram — Scout findings
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         run: |
           TEXT="🔍 Scout: scanned nika_yammys, milena_milenko, sophiebatzloff (IG) + millane, chiaraking, sydneyschiffer, ell_turner (TikTok), last 14 days — ${{ steps.scout.outputs.video_line }}."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
 
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
         env:
@@ -113,7 +121,6 @@ jobs:
       - name: Notify Telegram — Analysis
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         run: |
           SUMMARY_FILE="data/runs/${{ steps.scout.outputs.run_id }}/telegram_summary.txt"
           if [ -f "$SUMMARY_FILE" ]; then
@@ -124,7 +131,7 @@ jobs:
           TEXT="🧠 Analysis:"$'\n\n'"$BODY"
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
 
       - name: Plan — turn findings into this run's day(s) of Ivy content
         env:
@@ -142,7 +149,6 @@ jobs:
       - name: Notify Telegram — Generator's plan
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         run: |
           PLAN_FILE="data/runs/${{ steps.scout.outputs.run_id }}/content_plan.json"
           COUNT=$(jq '.days | length' "$PLAN_FILE")
@@ -161,7 +167,7 @@ jobs:
           done
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" '{chat_id:$chat_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_GENERATOR_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
 
       - name: Generate each day's image and queue Buffer drafts
         env:
@@ -260,7 +266,6 @@ jobs:
         if: always()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_OWNER_CHAT_ID: ${{ secrets.TELEGRAM_OWNER_CHAT_ID }}
         run: |
           LOG_FILE="data/runs/${{ steps.scout.outputs.run_id }}/dispatch_log.txt"
           if [ -f "$LOG_FILE" ]; then
@@ -275,5 +280,5 @@ jobs:
           TEXT="$TEXT"$'\n\n'"Nothing is scheduled yet — tap Approve to schedule everything at the times in the spec (§12), or open Buffer to change anything first."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
-                  '{chat_id:$chat_id, text:$text, reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_DISPATCH_THREAD_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
+                  '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
