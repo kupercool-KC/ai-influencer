@@ -56,12 +56,13 @@ async function approveIvyRun(runId) {
   for (const row of rows) {
     try {
       const { post } = await bufferQuery(
-        `query($input: PostInput!) { post(input: $input) { text assets { ... on ImageAsset { image { url } } } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { music } } } } }`,
+        `query($input: PostInput!) { post(input: $input) { text assets { ... on ImageAsset { source } } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { text music } } } } }`,
         { input: { id: row.buffer_post_id } },
       )
-      const imageUrl = post?.assets?.[0]?.image?.url
+      const imageUrl = post?.assets?.[0]?.source
+      const stickerFields = post?.metadata?.stickerFields
       const metadata = post?.metadata?.type
-        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...(post.metadata.stickerFields?.music ? { stickerFields: { music: post.metadata.stickerFields.music } } : {}) } }
+        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...((stickerFields?.text || stickerFields?.music) ? { stickerFields: { ...(stickerFields.text ? { text: stickerFields.text } : {}), ...(stickerFields.music ? { music: stickerFields.music } : {}) } } : {}) } }
         : undefined
       const result = await bufferQuery(
         `mutation($input: EditPostInput!) { editPost(input: $input) { ... on PostActionSuccess { post { id } } ... on MutationError { message } } }`,
@@ -413,13 +414,18 @@ export default async function handler(req, res) {
       if ((cq.data || '').startsWith('approve_ivy:')) {
         const runId = cq.data.slice('approve_ivy:'.length)
         await answerCallbackQuery(cq.id, 'Scheduling…')
+        // cq.message.text comes back already decoded (entities stripped), so it must be
+        // re-escaped before resending with parse_mode HTML, or a stray &/</> from a
+        // generated caption would either vanish or break the edit outright.
+        const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const originalText = escapeHtml(cq.message.text || '')
         try {
           const { scheduled, failures } = await approveIvyRun(runId)
-          const summary = `✅ Approved — ${scheduled} post(s)/story(ies) scheduled.` +
-            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).join('\n')}` : '')
-          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n${summary}`, { reply_markup: { inline_keyboard: [] } })
+          const summary = `✅ <b>Approved</b> — ${scheduled} post(s)/story(ies) scheduled.` +
+            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+          await editMessageText(cbChatId, cq.message.message_id, `${originalText}\n\n${summary}`, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
         } catch (e) {
-          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n❌ Approve failed: ${e.message}`, { reply_markup: { inline_keyboard: [] } })
+          await editMessageText(cbChatId, cq.message.message_id, `${originalText}\n\n❌ <b>Approve failed</b>: ${escapeHtml(e.message)}`, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
         }
         return res.status(200).end()
       }

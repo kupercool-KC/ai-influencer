@@ -133,13 +133,20 @@ async function main() {
   // "story" and must NOT also share to the feed. TikTok has no such required metadata.
   let instagramMeta = postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: 'post', shouldShareToFeed: true }
   if (platform === 'instagram' && postType === 'story') {
+    // Stories have no caption field in the app — the only on-screen text is the
+    // text sticker, set here via stickerFields.text. Buffer's top-level `text`
+    // on a Story post is just Buffer's own record of what was asked for; it is
+    // never rendered on the image itself (confirmed via a live post: text stuck
+    // at "" / null on-screen until this was added).
+    let stickerFields = { text }
     const audio = await pickInstagramAudio(channel, audioMood)
     if (audio) {
       console.log(`Attaching Instagram audio: "${audio.title}" — ${audio.displayArtist || 'unknown artist'} (id ${audio.id})`)
-      instagramMeta = { ...instagramMeta, stickerFields: { music: audio.id } }
+      stickerFields = { ...stickerFields, music: audio.id }
     } else {
       console.log('No Instagram audio found/attached for this story (posting without music).')
     }
+    instagramMeta = { ...instagramMeta, stickerFields }
   }
   const metadata = platform === 'instagram' ? { instagram: instagramMeta } : undefined
 

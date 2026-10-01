@@ -110,10 +110,10 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
-          TEXT="🔍 Scout: scanned nika_yammys, milena_milenko, sophiebatzloff (IG) + millane, chiaraking, sydneyschiffer, ell_turner (TikTok), last 14 days — ${{ steps.scout.outputs.video_line }}."
+          TEXT="🔍 <b>Scout</b>"$'\n'"Checked for fresh posts from the last 14 days:"$'\n'"• Instagram: nika_yammys, milena_milenko, sophiebatzloff"$'\n'"• TikTok: millane, chiaraking, sydneyschiffer, ell_turner"$'\n\n'"📊 Found ${{ steps.scout.outputs.video_line }} as inspiration for today."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML"}')"
 
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
         env:
@@ -128,12 +128,12 @@ jobs:
           if [ -f "$SUMMARY_FILE" ]; then
             BODY=$(cat "$SUMMARY_FILE")
           else
-            BODY="(no analyzed videos this run — writing from the persona profile alone)"
+            BODY="No post from today's scan had a completed deep-dive analysis in time, so there's no trend summary to show."$'\n'"Today's content was still written — just from Ivy's own persona/style profile, not from a trending pattern found in the scanned posts."
           fi
-          TEXT="🧠 Analysis:"$'\n\n'"$BODY"
+          TEXT="🧠 <b>Analysis</b>"$'\n\n'"$BODY"
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_SCOUT_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML"}')"
 
       - name: Plan — turn findings into this run's day(s) of Ivy content
         env:
@@ -152,24 +152,27 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
+          esc() { sed -e 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g' <<< "$1"; }
           PLAN_FILE="data/runs/${{ steps.scout.outputs.run_id }}/content_plan.json"
           COUNT=$(jq '.days | length' "$PLAN_FILE")
-          TEXT="✍️ Generator: wrote $COUNT day(s) of content."
+          TEXT="✍️ <b>Generator</b> — wrote $COUNT day(s) of content"
           for i in $(seq 0 $((COUNT - 1))); do
-            IMG_PROMPT=$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")
-            STORY_PROMPT=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")
-            CAPTION=$(jq -r ".days[$i].caption" "$PLAN_FILE")
-            STORY_TEXT=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")
-            REMINDER_TEXT=$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")
-            TEXT="$TEXT"$'\n\n'"Day $i feed image prompt: $IMG_PROMPT"
-            TEXT="$TEXT"$'\n'"Day $i feed caption: \"$CAPTION\""
-            [ -n "$STORY_PROMPT" ] && TEXT="$TEXT"$'\n\n'"Day $i story image prompt: $STORY_PROMPT"
-            [ -n "$STORY_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i story text: \"$STORY_TEXT\""
-            [ -n "$REMINDER_TEXT" ] && TEXT="$TEXT"$'\n'"Day $i reminder text: \"$REMINDER_TEXT\""
+            DAY_NUM=$((i + 1))
+            IMG_PROMPT=$(esc "$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE")")
+            STORY_PROMPT=$(esc "$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE")")
+            CAPTION=$(esc "$(jq -r ".days[$i].caption" "$PLAN_FILE")")
+            STORY_TEXT=$(esc "$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE")")
+            REMINDER_TEXT=$(esc "$(jq -r ".days[$i].post_reminder_text // empty" "$PLAN_FILE")")
+            TEXT="$TEXT"$'\n\n'"<b>Day $DAY_NUM</b>"
+            TEXT="$TEXT"$'\n'"📷 Feed image: $IMG_PROMPT"
+            TEXT="$TEXT"$'\n'"💬 Feed caption: \"$CAPTION\""
+            [ -n "$STORY_PROMPT" ] && TEXT="$TEXT"$'\n'"📱 Story image: $STORY_PROMPT"
+            [ -n "$STORY_TEXT" ] && TEXT="$TEXT"$'\n'"💭 Story text: \"$STORY_TEXT\""
+            [ -n "$REMINDER_TEXT" ] && TEXT="$TEXT"$'\n'"🔔 Reminder text: \"$REMINDER_TEXT\""
           done
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_GENERATOR_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text}')"
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_GENERATOR_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML"}')"
 
       - name: Generate each day's image and queue Buffer drafts
         env:
@@ -277,10 +280,10 @@ jobs:
             CREATED=0
             ERRORS="? (log missing — check the run)"
           fi
-          TEXT="📮 Dispatcher: $CREATED draft(s) created in Buffer (feed post + TikTok + Stories)."
-          [ "$ERRORS" != "0" ] && TEXT="$TEXT"$'\n'"⚠️ $ERRORS warning(s)/error(s) — check the run log."
-          TEXT="$TEXT"$'\n\n'"Nothing is scheduled yet — tap Approve to schedule everything at the times in the spec (§12), or open Buffer to change anything first."
+          TEXT="📮 <b>Dispatcher</b>"$'\n'"✅ $CREATED draft(s) created in Buffer (feed post + TikTok + Stories)"
+          [ "$ERRORS" != "0" ] && TEXT="$TEXT"$'\n'"⚠️ $ERRORS warning(s)/error(s) — check the run log"
+          TEXT="$TEXT"$'\n\n'"Nothing is scheduled yet. Tap the button below to schedule everything at the times in the spec (§12), or open Buffer first to change anything."
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_DISPATCH_THREAD_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
-                  '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
+                  '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML", reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
