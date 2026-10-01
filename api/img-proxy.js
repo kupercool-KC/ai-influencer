@@ -4,6 +4,11 @@ const ALLOWED_HOSTS = [
   'media.higgsfield.ai',
   'storage.higgsfield.ai',
   'files.higgsfield.ai',
+  // The CDN `higgsfield generate create` actually returns URLs on, confirmed live via
+  // Buffer's stored asset `source` field (2026-10-01) — none of the higgsfield.ai
+  // hostnames above ever appear in practice, so without this the TikTok fit=tiktok
+  // proxy call 403s and the pixel-cap fix never actually runs.
+  'd8j0ntlcm91z4.cloudfront.net',
   'oaidalleapiprodscus.blob.core.windows.net',
   'oaidallexprodscus.blob.core.windows.net',
 ]
