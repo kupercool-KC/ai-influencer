@@ -80,7 +80,33 @@ env:
   TELEGRAM_DISPATCH_THREAD_ID: "7"
 
 jobs:
+  # The owner can pause the automatic daily generation from Telegram (preference key pause_daily_generation,
+  # e.g. "we already have enough pictures"). Only the SCHEDULED run honors it — a link he sends or a manual
+  # run always goes through. Resume by deleting that preference ("תחזור לייצר").
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          SKIP=false
+          if [ "$EVENT" = "schedule" ]; then
+            ROW=$(curl -s "$SUPABASE_URL/rest/v1/owner_preferences?key=eq.pause_daily_generation&select=value" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+            [ "$(jq 'length' <<< "$ROW" 2>/dev/null || echo 0)" -gt 0 ] && SKIP=true
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          [ "$SKIP" = "true" ] && echo "Daily generation is paused by the owner — nothing generated, no credits spent."
+
   content:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
