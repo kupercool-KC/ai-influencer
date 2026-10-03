@@ -100,9 +100,16 @@ Spoken transcript: {brief.get('transcript', {}).get('full_text') or '(none)'}
 On-screen text (OCR): {brief.get('on_screen_text', {}).get('full_text_concat') or '(none)'}
 """
 
+    if brief.get("media_kind") == "image":
+        intro = ("Analyze this photo post for a content strategy report (treat the image(s) as the whole "
+                 "post; for fields that only make sense for video, such as pacing or hook timing, describe "
+                 "the equivalent for a still — what stops the scroll, how the frame is composed). "
+                 "Here are its image(s):")
+    else:
+        intro = ("Analyze this short-form video for a content strategy report. "
+                 "Here are its representative keyframes, in chronological order:")
     content = [
-        {"type": "text", "text": "Analyze this short-form video for a content strategy report. "
-         "Here are its representative keyframes, in chronological order:"},
+        {"type": "text", "text": intro},
         *[_image_block(p) for p in existing],
         {"type": "text", "text": context + "\n" + SCHEMA_HINT},
     ]

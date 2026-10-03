@@ -5,7 +5,8 @@
 //
 // Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"
 //   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
-//   [--post-type post|story]  (story is Instagram-only; ignored/invalid for other platforms)
+//   [--post-type post|story|reel]  (story/reel are Instagram-only; ignored/invalid for other platforms)
+//   [--video <url>]  (use INSTEAD of --image to queue a video: Instagram Reel or TikTok video)
 //   [--audio-mood "<vibe words>"]  (Instagram Stories only — see pickInstagramAudio below)
 //   [--run-id <id>] [--scheduled-for <iso8601>]  (recorded on the scheduled_dispatches row —
 //   run-id groups one day's drafts for the Telegram "Approve" button in api/telegram/webhook.js;
@@ -102,16 +103,16 @@ async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPost
 
 async function main() {
   const {
-    channel, image, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
-    'post-type': postType = 'post', 'audio-mood': audioMood,
+    channel, image, video, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
+    'post-type': postType = video && platform === 'instagram' ? 'reel' : 'post', 'audio-mood': audioMood,
     'run-id': runId, 'scheduled-for': scheduledFor,
   } = parseArgs(process.argv.slice(2))
-  if (!channel || !image || !text) {
-    console.error('Usage: node create-draft.mjs --channel <channelId> --image <url> --text "<caption>"')
+  if (!channel || !(image || video) || !text) {
+    console.error('Usage: node create-draft.mjs --channel <channelId> (--image <url> | --video <url>) --text "<caption>"')
     process.exit(1)
   }
-  if (postType === 'story' && platform !== 'instagram') {
-    console.error(`--post-type story is Instagram-only, got platform "${platform}"`)
+  if ((postType === 'story' || postType === 'reel') && platform !== 'instagram') {
+    console.error(`--post-type ${postType} is Instagram-only, got platform "${platform}"`)
     process.exit(1)
   }
 
@@ -131,7 +132,7 @@ async function main() {
   // post (confirmed via the Buffer MCP's introspect_schema — "Invalid post: Instagram
   // posts require a type" otherwise). A plain feed image is type "post"; a Story is type
   // "story" and must NOT also share to the feed. TikTok has no such required metadata.
-  let instagramMeta = postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: 'post', shouldShareToFeed: true }
+  let instagramMeta = postType === 'story' ? { type: 'story', shouldShareToFeed: false } : { type: postType, shouldShareToFeed: true }
   if (platform === 'instagram' && postType === 'story') {
     // Stories have no caption field in the app — the only on-screen text is the
     // text sticker, set here via stickerFields.text. Buffer's top-level `text`
@@ -157,7 +158,7 @@ async function main() {
       schedulingType: 'automatic',
       mode: 'addToQueue',
       saveToDraft: true,
-      assets: [{ image: { url: image } }],
+      assets: [video ? { video: { url: video } } : { image: { url: image } }],
       ...(metadata ? { metadata } : {}),
     },
   }
