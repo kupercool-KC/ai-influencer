@@ -46,12 +46,78 @@ def _first_present(item: dict[str, Any], *dotted_paths: str) -> Any:
         for key in path.split("."):
             if isinstance(node, dict):
                 node = node.get(key)
+            elif isinstance(node, list) and key.isdigit():
+                node = node[int(key)] if int(key) < len(node) else None
             else:
                 node = None
                 break
         if node not in (None, ""):
             return node
     return None
+
+
+def _item_to_raw(item: dict[str, Any]) -> RawVideo | None:
+    """Map one Apify TikTok item to a RawVideo (None if it has no usable id)."""
+    video_id = str(_first_present(item, "id", "videoId") or "")
+    if not video_id:
+        return None
+
+    created_iso = item.get("createTimeISO")
+    if created_iso:
+        posted_at = datetime.fromisoformat(created_iso.replace("Z", "+00:00"))
+    else:
+        create_time = item.get("createTime")
+        posted_at = (
+            datetime.fromtimestamp(int(create_time), tz=timezone.utc)
+            if create_time
+            else datetime.now(timezone.utc)
+        )
+
+    author_meta = item.get("authorMeta", {}) or {}
+    music_meta = item.get("musicMeta", {}) or {}
+    hashtags_raw = item.get("hashtags", []) or []
+    hashtags = [
+        (h["name"] if isinstance(h, dict) else str(h)).lstrip("#").lower() for h in hashtags_raw
+    ]
+
+    # The Apify-hosted copy (mediaUrls, produced by shouldDownloadVideos) comes first: TikTok's own
+    # downloadAddr is signed/short-lived and usually 403s outside a browser session, which is why
+    # the account scan used to fall back to yt-dlp — itself broken by TikTok since Aug 2026 — and
+    # end up with no analyzable videos at all.
+    apify_video = next(
+        (u for u in (item.get("mediaUrls") or []) if isinstance(u, str) and (".mp4" in u or "video" in u.lower())),
+        None,
+    )
+    direct_url = apify_video or _first_present(
+        item, "videoMeta.downloadAddr", "downloadAddr", "videoUrl"
+    )
+    page_url = _first_present(item, "webVideoUrl") or f"https://www.tiktok.com/@{author_meta.get('name', '')}/video/{video_id}"
+
+    return (
+        RawVideo(
+            platform="tiktok",
+            video_id=video_id,
+            url=page_url,
+            author_handle=author_meta.get("name", ""),
+            author_name=author_meta.get("nickName", author_meta.get("name", "")),
+            caption=item.get("text", "") or "",
+            hashtags=sorted(set(hashtags)),
+            posted_at=posted_at,
+            duration_sec=(item.get("videoMeta", {}) or {}).get("duration"),
+            thumbnail_url=_first_present(item, "videoMeta.coverUrl", "covers.0"),
+            music_track=(
+                f"{music_meta.get('musicName', '')} — {music_meta.get('musicAuthor', '')}".strip(" —")
+                or None
+            ),
+            views=int(item.get("playCount", 0) or 0),
+            likes=int(item.get("diggCount", 0) or 0),
+            comments=int(item.get("commentCount", 0) or 0),
+            shares=int(item.get("shareCount", 0) or 0),
+            data_completeness="full",
+            direct_media_url=direct_url,
+            raw=item,
+        )
+    )
 
 
 def discover(niche: str, settings: Settings, since_days: int, limit: int) -> list[RawVideo]:
@@ -84,61 +150,35 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
     cutoff = datetime.now(timezone.utc).timestamp() - since_days * 86400
     results: list[RawVideo] = []
     for item in client.dataset(dataset_id).iterate_items():
-        video_id = str(_first_present(item, "id", "videoId") or "")
-        if not video_id:
+        raw = _item_to_raw(item)
+        if raw is None or raw.posted_at.timestamp() < cutoff:
             continue
-
-        created_iso = item.get("createTimeISO")
-        if created_iso:
-            posted_at = datetime.fromisoformat(created_iso.replace("Z", "+00:00"))
-        else:
-            create_time = item.get("createTime")
-            posted_at = (
-                datetime.fromtimestamp(int(create_time), tz=timezone.utc)
-                if create_time
-                else datetime.now(timezone.utc)
-            )
-        if posted_at.timestamp() < cutoff:
-            continue
-
-        author_meta = item.get("authorMeta", {}) or {}
-        music_meta = item.get("musicMeta", {}) or {}
-        hashtags_raw = item.get("hashtags", []) or []
-        hashtags = [
-            (h["name"] if isinstance(h, dict) else str(h)).lstrip("#").lower() for h in hashtags_raw
-        ]
-
-        direct_url = _first_present(
-            item, "videoMeta.downloadAddr", "downloadAddr", "videoUrl", "mediaUrls.0"
-        )
-        page_url = _first_present(item, "webVideoUrl") or f"https://www.tiktok.com/@{author_meta.get('name', '')}/video/{video_id}"
-
-        results.append(
-            RawVideo(
-                platform="tiktok",
-                video_id=video_id,
-                url=page_url,
-                author_handle=author_meta.get("name", ""),
-                author_name=author_meta.get("nickName", author_meta.get("name", "")),
-                caption=item.get("text", "") or "",
-                hashtags=sorted(set(hashtags)),
-                posted_at=posted_at,
-                duration_sec=(item.get("videoMeta", {}) or {}).get("duration"),
-                thumbnail_url=_first_present(item, "videoMeta.coverUrl", "covers.0"),
-                music_track=(
-                    f"{music_meta.get('musicName', '')} — {music_meta.get('musicAuthor', '')}".strip(" —")
-                    or None
-                ),
-                views=int(item.get("playCount", 0) or 0),
-                likes=int(item.get("diggCount", 0) or 0),
-                comments=int(item.get("commentCount", 0) or 0),
-                shares=int(item.get("shareCount", 0) or 0),
-                data_completeness="full",
-                direct_media_url=direct_url,
-                raw=item,
-            )
-        )
+        results.append(raw)
     return results
+
+
+def discover_single_url(url: str, settings: Settings) -> RawVideo | None:
+    """Scrape one specific TikTok post/video URL (what a human pasted), not an account.
+    Photo posts come back too — their `direct_media_url` is just not a video."""
+    from apify_client import ApifyClient
+
+    client = ApifyClient(settings.require_apify())
+    run = client.actor(ACTOR_ID).call(
+        run_input={
+            "postURLs": [url],
+            "shouldDownloadVideos": True,
+            "shouldDownloadSubtitles": False,
+            "shouldDownloadCovers": True,
+            "shouldDownloadAvatars": False,
+            "shouldDownloadMusicCovers": False,
+            "proxyCountryCode": "None",
+        }
+    )
+    for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+        raw = _item_to_raw(item)
+        if raw is not None:
+            return raw
+    return None
 
 
 register("tiktok", discover)

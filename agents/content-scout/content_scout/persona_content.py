@@ -126,11 +126,20 @@ def _collect_inspiration(briefs: list[dict[str, Any]]) -> str:
 
 
 def generate_daily_plan(
-    briefs: list[dict[str, Any]], persona_dir: Path, num_days: int, api_key: str
+    briefs: list[dict[str, Any]], persona_dir: Path, num_days: int, api_key: str,
+    extra_direction: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Returns a list of {generation_prompt, caption, hashtags} dicts, length num_days."""
+    """Returns a list of {generation_prompt, caption, hashtags} dicts, length num_days.
+
+    `extra_direction` is free-text steering from the owner (e.g. a pasted link's "make it
+    cozier") — inserted verbatim as its own section so it outranks the generic task text."""
     persona = _load_persona(persona_dir)
     inspiration = _collect_inspiration(briefs)
+    direction_block = (
+        f"\n=== DIRECTION FROM THE OWNER (follow this above the generic task) ===\n{extra_direction.strip()}\n"
+        if extra_direction and extra_direction.strip()
+        else ""
+    )
 
     prompt = f"""You are writing {num_days} day(s) of social content for an AI persona, grounded in \
 real recent posts from accounts in her niche (below) — not generic ideas.
@@ -141,6 +150,7 @@ real recent posts from accounts in her niche (below) — not generic ideas.
 === RECENT INSPIRATION FROM THE NICHE (real accounts, analyzed this run) ===
 {inspiration}
 
+{direction_block}
 === YOUR TASK ===
 Write {num_days} day(s) of content. Each day needs a Higgsfield generation prompt (a new \
 scene/pose/outfit for this persona) and a caption in her voice — draw on what's actually \
@@ -155,7 +165,7 @@ post, and vary each day from the others.
 
 {PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}
 """
-    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=800 * max(num_days, 1) + 500)
+    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=2000 * max(num_days, 1) + 800)
     data = json.loads(_strip_fences(raw))
     days = data["days"]
     if len(days) != num_days:

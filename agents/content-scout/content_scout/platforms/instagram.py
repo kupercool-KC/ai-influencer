@@ -124,7 +124,28 @@ def _strip_byte_range(video_url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
 
 
-def _extract_post(page: Any, url: str, cutoff_ts: float) -> RawVideo | None:
+def _collect_image_urls(page: Any) -> list[str]:
+    """Image URLs of a (possibly carousel) photo post: the og:image plus any large <img> inside
+    the post, skipping avatars. Logged-out pages only render the first slide or two."""
+    return page.evaluate(
+        """
+        () => {
+          const out = [];
+          const og = document.querySelector("meta[property='og:image']")?.content;
+          if (og) out.push(og);
+          for (const img of document.querySelectorAll('article img, main img')) {
+            if (/profile picture/i.test(img.alt || '')) continue;
+            if (img.naturalWidth && img.naturalWidth < 400) continue;
+            const src = img.currentSrc || img.src;
+            if (src && !out.includes(src)) out.push(src);
+          }
+          return out.slice(0, 4);
+        }
+        """
+    )
+
+
+def _extract_post(page: Any, url: str, cutoff_ts: float, allow_images: bool = False) -> RawVideo | None:
     video_urls: list[str] = []
 
     def on_response(response: Any) -> None:
@@ -139,8 +160,13 @@ def _extract_post(page: Any, url: str, cutoff_ts: float) -> RawVideo | None:
     finally:
         page.remove_listener("response", on_response)
 
+    image_urls: list[str] = []
     if not video_urls:
-        return None  # image-only post — this pipeline is about video content specifically
+        if not allow_images:
+            return None  # image-only post — the account scan is about video content specifically
+        image_urls = _collect_image_urls(page)
+        if not image_urls:
+            return None
 
     def meta(prop: str) -> str | None:
         el = page.query_selector(f"meta[property='{prop}']")
@@ -181,8 +207,8 @@ def _extract_post(page: Any, url: str, cutoff_ts: float) -> RawVideo | None:
         comments=comments,
         shares=0,  # never exposed publicly by Instagram
         data_completeness="partial",  # views/shares missing
-        direct_media_url=_strip_byte_range(video_urls[-1]),
-        raw={"post_url": url, "captured_video_urls": video_urls},
+        direct_media_url=_strip_byte_range(video_urls[-1]) if video_urls else None,
+        raw={"post_url": url, "captured_video_urls": video_urls, "image_urls": image_urls},
     )
 
 
@@ -251,7 +277,8 @@ def discover(niche: str, settings: Settings, since_days: int, limit: int) -> lis
 
 
 def discover_single_url(url: str) -> RawVideo | None:
-    """Extract one specific post/reel URL directly, bypassing the profile-grid discovery
+    """Extract one specific post/reel URL directly (photo posts too: `direct_media_url` is None
+    and `raw["image_urls"]` holds the images), bypassing the profile-grid discovery
     above entirely — for on-demand tests/tools that already know the exact URL a human
     gave them (e.g. "run the pipeline on this one reel"), where navigating to it as if it
     were a profile page wouldn't reliably find it. Reuses `_extract_post`, the same
@@ -269,7 +296,7 @@ def discover_single_url(url: str) -> RawVideo | None:
         context = browser.new_context(user_agent=USER_AGENT)
         page = context.new_page()
         try:
-            return _extract_post(page, url, cutoff_ts=0)
+            return _extract_post(page, url, cutoff_ts=0, allow_images=True)
         finally:
             browser.close()
 

@@ -1,5 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import sharp from 'sharp'
+
+// Mirrors the TikTok pixel-count cap handled in api/img-proxy.js — see the
+// comment there for why this resize exists.
+const TIKTOK_MAX_PIXELS = 2_073_600
+
+async function fitUnderPixelCap(buf, maxPixels) {
+  const img = sharp(buf)
+  const { width, height } = await img.metadata()
+  if (!width || !height || width * height <= maxPixels) return null
+  const scale = Math.sqrt(maxPixels / (width * height))
+  return img
+    .resize(Math.floor(width * scale), Math.floor(height * scale))
+    .jpeg({ quality: 90 })
+    .toBuffer()
+}
 
 // Local dev search proxy — mirrors api/search.js for Vercel production
 const searchPlugin = {
@@ -47,17 +63,26 @@ const imgProxyPlugin = {
       const qs = new URLSearchParams(req.url.split('?')[1] || '')
       const url = qs.get('url')
       const name = qs.get('name') || 'image.jpg'
+      const fit = qs.get('fit')
       if (!url) { res.writeHead(400); res.end('Missing url'); return }
       try {
         const r = await fetch(decodeURIComponent(url))
-        const ct = r.headers.get('content-type') || 'image/jpeg'
-        const buf = await r.arrayBuffer()
+        let ct = r.headers.get('content-type') || 'image/jpeg'
+        let buf = Buffer.from(await r.arrayBuffer())
+        if (fit === 'tiktok' && ct.startsWith('image/')) {
+          try {
+            const resized = await fitUnderPixelCap(buf, TIKTOK_MAX_PIXELS)
+            if (resized) { buf = resized; ct = 'image/jpeg' }
+          } catch (e) {
+            console.error('Warning: TikTok resize failed, serving original:', e.message)
+          }
+        }
         res.writeHead(r.status, {
           'Content-Type': ct,
           'Content-Disposition': `attachment; filename="${decodeURIComponent(name)}"`,
           'Access-Control-Allow-Origin': '*',
         })
-        res.end(Buffer.from(buf))
+        res.end(buf)
       } catch (e) {
         res.writeHead(500); res.end('Proxy error: ' + e.message)
       }

@@ -259,6 +259,29 @@ def cmd_test_video(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_inspire(args: argparse.Namespace) -> int:
+    """Look at ONE pasted Instagram/TikTok link (video or photo post), analyze it, and write a
+    content plan inspired by it into a normal run directory (prints `Run '<id>'` like `run`)."""
+    from content_scout.inspire import InspirationError, run_inspire
+
+    settings = load_settings()
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("Error: ANTHROPIC_API_KEY is not set.", file=sys.stderr)
+        return 1
+    persona_dir = Path(args.persona_dir)
+    if not (persona_dir / "persona.json").exists():
+        print(f"Error: no persona.json found under {persona_dir}", file=sys.stderr)
+        return 1
+    try:
+        run_id, run_dir = run_inspire(args.url, args.note, args.kind, persona_dir, settings, api_key)
+    except InspirationError as exc:
+        print(f"INSPIRE_ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(f"Run '{run_id}' -> {run_dir}")
+    return 0
+
+
 def cmd_list_runs(args: argparse.Namespace) -> int:
     settings = load_settings()
     runs = storage.list_runs(settings.data_dir)
@@ -340,6 +363,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_test_video.add_argument("--url", required=True, help="Full Instagram post/reel URL")
     p_test_video.add_argument("--persona-dir", required=True, help="Path to docs/personas/<Name>/")
     p_test_video.set_defaults(func=cmd_test_video)
+
+    p_inspire = sub.add_parser(
+        "inspire",
+        help="Analyze ONE Instagram/TikTok link (video or photo) and plan persona content inspired by it.",
+    )
+    p_inspire.add_argument("--url", required=True)
+    p_inspire.add_argument("--persona-dir", required=True)
+    p_inspire.add_argument("--kind", choices=["image", "video"], default="image")
+    p_inspire.add_argument("--note", default=None, help="Extra direction from the owner, e.g. 'make it cozier'")
+    p_inspire.set_defaults(func=cmd_inspire)
 
     p_list = sub.add_parser("list-runs", help="List all runs.")
     p_list.set_defaults(func=cmd_list_runs)

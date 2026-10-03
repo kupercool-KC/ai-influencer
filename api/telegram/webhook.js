@@ -33,9 +33,9 @@
 // propose_code_change, open real pull requests.
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-import { sendMessage, answerCallbackQuery, editMessageText, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
+import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
-import { TOOLS, runTool } from '../../lib/telegramTools.js'
+import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
 import { bufferQuery } from '../../lib/bufferClient.js'
 
 // One tap on the Ivy daily pipeline's "Approve & schedule" button (sent by
@@ -56,16 +56,17 @@ async function approveIvyRun(runId) {
   for (const row of rows) {
     try {
       const { post } = await bufferQuery(
-        `query($input: PostInput!) { post(input: $input) { text assets { ... on ImageAsset { image { url } } } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { music } } } } }`,
+        `query($input: PostInput!) { post(input: $input) { text assets { type source } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { text music } } } } }`,
         { input: { id: row.buffer_post_id } },
       )
-      const imageUrl = post?.assets?.[0]?.image?.url
+      const assets = (post?.assets || []).map(a => String(a.type).toLowerCase() === 'video' ? { video: { url: a.source } } : { image: { url: a.source } })
+      const stickerFields = post?.metadata?.stickerFields
       const metadata = post?.metadata?.type
-        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...(post.metadata.stickerFields?.music ? { stickerFields: { music: post.metadata.stickerFields.music } } : {}) } }
+        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...((stickerFields?.text || stickerFields?.music) ? { stickerFields: { ...(stickerFields.text ? { text: stickerFields.text } : {}), ...(stickerFields.music ? { music: stickerFields.music } : {}) } } : {}) } }
         : undefined
       const result = await bufferQuery(
         `mutation($input: EditPostInput!) { editPost(input: $input) { ... on PostActionSuccess { post { id } } ... on MutationError { message } } }`,
-        { input: { id: row.buffer_post_id, text: post?.text, assets: imageUrl ? [{ image: { url: imageUrl } }] : [], mode: 'customScheduled', dueAt: row.scheduled_for, schedulingType: 'automatic', saveToDraft: false, ...(metadata ? { metadata } : {}) } },
+        { input: { id: row.buffer_post_id, text: post?.text, assets, mode: 'customScheduled', dueAt: row.scheduled_for, schedulingType: 'automatic', saveToDraft: false, ...(metadata ? { metadata } : {}) } },
       )
       if (result.editPost?.message) throw new Error(result.editPost.message)
       await db.from('scheduled_dispatches').update({ status: 'scheduled', updated_at: new Date().toISOString() }).eq('id', row.id)
@@ -106,12 +107,15 @@ const LABEL_TO_TAB = Object.fromEntries(Object.entries(TAB_LABELS).map(([tab, la
 // what Chat is for. If a request belongs to a different agent, say so and
 // name which tab/topic to use instead of attempting it out of scope.
 const AGENT_CONTEXT = {
-  scout: `You are the Scout agent. Your one job: help plan and refine Content Scout research runs —
-competitor content in a niche, across platforms. If asked what you do, say that in a sentence, not
-the whole project's capability list. If they describe an idea in plain language, propose the exact
-\`/scout <niche> | <platforms> | <limit> | <days>\` command they should send. Out of scope: image
-generation, posting/scheduling, code changes — if asked for those, say so and point to the
-Generate / Dispatch / Code topic instead of trying to help with it here.`,
+  scout: `You are the Scout agent. Your job: (1) plan and refine Content Scout research runs —
+competitor content in a niche, across platforms — and (2) turn a link the owner pastes (an Instagram
+or TikTok reel, video or photo post) into new Ivy Vale content inspired by it: you read and analyze
+the post, then the Generator makes an image or short video and the Dispatcher queues it for approval.
+When a message contains such a link, call create_from_link (kind "video" only if they asked for a
+video/reel, their extra wishes go in note) and tell them where the results will appear. If asked what
+you do, say that in a sentence or two, not the whole project's capability list. For research runs,
+propose the exact \`/scout <niche> | <platforms> | <limit> | <days>\` command. Out of scope: posting/
+scheduling and code changes — say so and point to the Dispatch / Code topic.`,
   generate: `You are the Generate agent. Your one job: help craft and refine Higgsfield image
 generation prompts — persona, pose, setting, mood, aspect ratio. If asked what you do, say that in a
 sentence, not the whole project's capability list. If they describe an idea in plain language,
@@ -139,7 +143,7 @@ tab/topic should stay narrowly in its own lane and point back here for anything 
 // visible right at creation — not just a mode name, but what the agent
 // actually does and which tools back that up.
 const ROLE_SUMMARY = {
-  scout: 'plans/refines Content Scout research runs. Tools: influencer + activity log lookups.',
+  scout: 'plans Content Scout research runs, and turns any Instagram/TikTok link you paste into new Ivy content (image or video) inspired by it. Tools: link inspiration, influencer + activity log lookups.',
   generate: 'crafts Higgsfield image-generation prompts. Tools: influencer data (read/update), media assets, activity log.',
   dispatch: 'plans Buffer DRAFT posts (never auto-publishes). Tools: scheduled dispatches, media assets, activity log.',
   code: 'turns requests into PR-gated code/doc changes. Tool: propose_code_change only — never pushes to main.',
@@ -257,6 +261,11 @@ actions genuinely belong to a different tab/topic) let you read and write the ap
 (Supabase rows). Use them whenever the user asks a question about current data or asks you to
 change data. You CANNOT change database schema or run migrations from here, regardless of tools.
 
+Whenever the owner wants to SEE something — a draft, a scheduled post, a generated image or video —
+send the actual picture/video into this chat with show_buffer_post (for Buffer posts) or show_media
+(any direct URL) instead of just describing it or pasting a link. Everything the pipeline makes
+should be viewable right here in Telegram.
+
 If propose_code_change is among your tools: it queues a PR-gated agent run (a fresh Claude Code
 instance with actual repo access) for real code changes, documentation updates, or building a new
 system in the repo, and the result (PR link, or why it stopped) arrives as a follow-up message a few
@@ -364,7 +373,7 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
     for (const block of content) {
       if (block.type !== 'tool_use') continue
       try {
-        const result = await runTool(block.name, block.input || {})
+        const result = await runTool(block.name, block.input || {}, { chatId, threadId })
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
       } catch (e) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${e.message}`, is_error: true })
@@ -413,13 +422,29 @@ export default async function handler(req, res) {
       if ((cq.data || '').startsWith('approve_ivy:')) {
         const runId = cq.data.slice('approve_ivy:'.length)
         await answerCallbackQuery(cq.id, 'Scheduling…')
+        // cq.message.text comes back already decoded (entities stripped), so it must be
+        // re-escaped before resending with parse_mode HTML, or a stray &/</> from a
+        // generated caption would either vanish or break the edit outright.
+        const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        // The Dispatch message carries the actual image/video, so its text lives in the caption
+        // (editMessageText would fail on it) — and captions are capped at 1024 chars.
+        const isMedia = Boolean(cq.message.photo || cq.message.video)
+        const edit = (html) => isMedia
+          ? editMessageCaption(cbChatId, cq.message.message_id, html, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
+          : editMessageText(cbChatId, cq.message.message_id, html, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
+        const fit = (original, tail) => {
+          const room = (isMedia ? 1000 : 3900) - tail.length - 2
+          const o = escapeHtml(original)
+          return `${o.length > room ? o.slice(0, Math.max(0, room - 1)) + '…' : o}\n\n${tail}`
+        }
+        const original = (isMedia ? cq.message.caption : cq.message.text) || ''
         try {
           const { scheduled, failures } = await approveIvyRun(runId)
-          const summary = `✅ Approved — ${scheduled} post(s)/story(ies) scheduled.` +
-            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).join('\n')}` : '')
-          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n${summary}`, { reply_markup: { inline_keyboard: [] } })
+          const summary = `✅ <b>Approved</b> — ${scheduled} post(s)/story(ies) scheduled.` +
+            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+          await edit(fit(original, summary))
         } catch (e) {
-          await editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n❌ Approve failed: ${e.message}`, { reply_markup: { inline_keyboard: [] } })
+          await edit(fit(original, `❌ <b>Approve failed</b>: ${escapeHtml(e.message)}`))
         }
         return res.status(200).end()
       }
@@ -535,6 +560,26 @@ export default async function handler(req, res) {
       const mode = LABEL_TO_TAB[text]
       await setMode(chatId, '', mode)
       await sendMessage(chatId, MENU_TEXT[mode], { reply_markup: tabsKeyboard() })
+      return res.status(200).end()
+    }
+
+    // A pasted Instagram/TikTok link in the Scout topic means "make something like this" — handled
+    // deterministically (no LLM round-trip to misread it); owner only because it spends credits.
+    // In other topics the same capability is available conversationally via the create_from_link tool.
+    const inspiration = parseInspirationRequest(text)
+    if (inspiration && owner && (text.startsWith('/inspire') || (await getMode(chatId, threadId)) === 'scout')) {
+      await startInspiration(inspiration)
+      const what = inspiration.kind === 'video' ? 'a short video' : 'an image'
+      await sendMessage(chatId, [
+        `🔗 Got it — I'll study this post and make ${what} inspired by it.`,
+        inspiration.note ? `Your direction: "${inspiration.note}"` : null,
+        `You'll see the results here, then in Generator and Dispatch (where you approve). Takes about ${inspiration.kind === 'video' ? '10-15' : '5-10'} minutes.`,
+        inspiration.kind === 'image' ? 'Want a video instead? Send the link again with the word "video".' : null,
+      ].filter(Boolean).join('\n'), { ...threadOpts(threadId), disable_web_page_preview: true })
+      return res.status(200).end()
+    }
+    if (text.startsWith('/inspire')) {
+      await sendMessage(chatId, 'Send `/inspire <Instagram or TikTok link> [video] [what to change]` — or just paste the link here in the Scout topic.', threadOpts(threadId))
       return res.status(200).end()
     }
 
