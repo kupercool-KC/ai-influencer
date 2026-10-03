@@ -27,6 +27,10 @@ STYLE_ANCHOR = (
     "camera sway, real-world imperfections"
 )
 
+# The spec says ~220 words; the fixed identity/negative/closing clauses alone are ~190, so the
+# LLM-written part has only a few dozen words of room.
+MAX_PROMPT_WORDS = 260
+
 MOVEMENT_WORDS = {"pan", "tilt", "dolly", "push", "pull", "track", "orbit", "zoom", "handheld", "static", "locked"}
 FACE_DESCRIPTOR_RE = re.compile(
     r"\b(blue|green|brown|hazel|grey|gray)\s+eyes\b|\bblonde\b|\bbrunette\b|\bfreckles?\b|"
@@ -39,14 +43,14 @@ PLAN_SCHEMA = """Respond with ONLY a JSON object (no markdown fences, no comment
   "recipe": "lifestyle_plandid | day_in_life",
   "duration_s": integer (lifestyle_plandid: 8-12, one beat; day_in_life: 12-15, 3-4 beats),
   "hook_type": "visual surprise | motion into frame | direct address | object reveal | one line",
-  "concept": "one line",
+  "concept": "one line, <= 12 words",
   "still_prompt": "scene ONLY for the vertical 9:16 first frame (pose, framing, light, setting) — \
 a quick candid phone-snap look. Never describe her face, skin, hair or eyes.",
-  "wardrobe": "short, from her palette: sand, sage, cream, terracotta, minimal jewellery",
-  "props": "short, or 'none'",
-  "environment": "place + light source + one sensory detail (Australia unless told otherwise)",
+  "wardrobe": "<= 12 words, from her palette: sand, sage, cream, terracotta, minimal jewellery",
+  "props": "<= 12 words, or 'none'",
+  "environment": "<= 12 words: place + light source + one sensory detail (Australia unless told otherwise)",
   "beats": [{"start": 0, "end": 2, "camera": "framing + exactly ONE movement word, e.g. 'MCU, handheld'", \
-"action": "ONE action, <= 20 words, no 'and then'"}],
+"action": "ONE action, <= 14 words, no 'and then'"}],
   "caption": "social caption in her voice",
   "hashtags": ["3-6 short hashtags, no # symbol"],
   "caption_overlay": "optional short on-screen text suggestion, or null"
@@ -146,15 +150,17 @@ mechanic of a real source post (below) — adapting, never copying.
         plan = json.loads(_strip_fences(raw))
         errs = validate_plan(plan)
         if not errs:
+            words = len(assemble_prompt(plan).split())
+            if words > MAX_PROMPT_WORDS:
+                errs = [f"assembled prompt is {words} words, max {MAX_PROMPT_WORDS} — shorten concept/wardrobe/props/"
+                        "environment (<= 12 words each) and every beat action (<= 14 words)"]
+        if not errs:
             break
         feedback = "\n\nYour previous answer broke these rules, fix them and answer again:\n- " + "\n- ".join(errs)
     else:
         raise ValueError(f"Video plan failed validation after 3 tries: {errs}")
 
     prompt = assemble_prompt(plan)
-    words = len(prompt.split())
-    if words > 260:
-        raise ValueError(f"Assembled video prompt is {words} words (limit ~220-260) — shorten beats/environment")
     return {
         "generation_prompt": IDENTITY_OPENER + plan["still_prompt"],
         "caption": plan["caption"],

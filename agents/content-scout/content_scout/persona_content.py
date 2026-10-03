@@ -165,7 +165,7 @@ post, and vary each day from the others.
 
 {PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}
 """
-    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=800 * max(num_days, 1) + 500)
+    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=2000 * max(num_days, 1) + 800)
     data = json.loads(_strip_fences(raw))
     days = data["days"]
     if len(days) != num_days:

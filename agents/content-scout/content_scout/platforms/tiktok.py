@@ -46,6 +46,8 @@ def _first_present(item: dict[str, Any], *dotted_paths: str) -> Any:
         for key in path.split("."):
             if isinstance(node, dict):
                 node = node.get(key)
+            elif isinstance(node, list) and key.isdigit():
+                node = node[int(key)] if int(key) < len(node) else None
             else:
                 node = None
                 break
@@ -78,8 +80,16 @@ def _item_to_raw(item: dict[str, Any]) -> RawVideo | None:
         (h["name"] if isinstance(h, dict) else str(h)).lstrip("#").lower() for h in hashtags_raw
     ]
 
-    direct_url = _first_present(
-        item, "videoMeta.downloadAddr", "downloadAddr", "videoUrl", "mediaUrls.0"
+    # The Apify-hosted copy (mediaUrls, produced by shouldDownloadVideos) comes first: TikTok's own
+    # downloadAddr is signed/short-lived and usually 403s outside a browser session, which is why
+    # the account scan used to fall back to yt-dlp — itself broken by TikTok since Aug 2026 — and
+    # end up with no analyzable videos at all.
+    apify_video = next(
+        (u for u in (item.get("mediaUrls") or []) if isinstance(u, str) and (".mp4" in u or "video" in u.lower())),
+        None,
+    )
+    direct_url = apify_video or _first_present(
+        item, "videoMeta.downloadAddr", "downloadAddr", "videoUrl"
     )
     page_url = _first_present(item, "webVideoUrl") or f"https://www.tiktok.com/@{author_meta.get('name', '')}/video/{video_id}"
 
