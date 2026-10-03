@@ -36,47 +36,7 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
-import { bufferQuery } from '../../lib/bufferClient.js'
-
-// One tap on the Ivy daily pipeline's "Approve & schedule" button (sent by
-// ivy-daily-content.yml's Dispatcher step) turns every DRAFT it created for
-// that run into a real customScheduled Buffer post at the time the workflow
-// already picked (scheduled_dispatches.scheduled_for, per docs/video-prompt-
-// spec.md §12's Slot A/B). Re-fetches each post's current text/assets/
-// metadata first because Buffer's editPost re-validates the whole post from
-// scratch rather than merging — dropping them would blank the post.
-async function approveIvyRun(runId) {
-  const db = supabaseAdmin()
-  const { data: rows, error } = await db.from('scheduled_dispatches').select('*').eq('run_id', runId).eq('status', 'pending')
-  if (error) throw new Error(`Supabase lookup failed: ${error.message}`)
-  if (!rows?.length) return { scheduled: 0, failures: ['לא נמצאו טיוטות ממתינות להרצה הזו — כנראה כבר אושרה'] }
-
-  let scheduled = 0
-  const failures = []
-  for (const row of rows) {
-    try {
-      const { post } = await bufferQuery(
-        `query($input: PostInput!) { post(input: $input) { text assets { type source } metadata { ... on InstagramPostMetadata { type shouldShareToFeed stickerFields { text music } } } } }`,
-        { input: { id: row.buffer_post_id } },
-      )
-      const assets = (post?.assets || []).map(a => String(a.type).toLowerCase() === 'video' ? { video: { url: a.source } } : { image: { url: a.source } })
-      const stickerFields = post?.metadata?.stickerFields
-      const metadata = post?.metadata?.type
-        ? { instagram: { type: post.metadata.type, shouldShareToFeed: post.metadata.shouldShareToFeed, ...((stickerFields?.text || stickerFields?.music) ? { stickerFields: { ...(stickerFields.text ? { text: stickerFields.text } : {}), ...(stickerFields.music ? { music: stickerFields.music } : {}) } } : {}) } }
-        : undefined
-      const result = await bufferQuery(
-        `mutation($input: EditPostInput!) { editPost(input: $input) { ... on PostActionSuccess { post { id } } ... on MutationError { message } } }`,
-        { input: { id: row.buffer_post_id, text: post?.text, assets, mode: 'customScheduled', dueAt: row.scheduled_for, schedulingType: 'automatic', saveToDraft: false, ...(metadata ? { metadata } : {}) } },
-      )
-      if (result.editPost?.message) throw new Error(result.editPost.message)
-      await db.from('scheduled_dispatches').update({ status: 'scheduled', updated_at: new Date().toISOString() }).eq('id', row.id)
-      scheduled++
-    } catch (e) {
-      failures.push(`${row.platform}: ${e.message}`)
-    }
-  }
-  return { scheduled, failures }
-}
+import { approveRun, releaseGroup, postponeGroup, skipGroup, heSlot } from '../../lib/releaseGate.js'
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
 
@@ -444,13 +404,40 @@ export default async function handler(req, res) {
         }
         const original = (isMedia ? cq.message.caption : cq.message.text) || ''
         try {
-          const { scheduled, failures } = await approveIvyRun(runId)
-          const summary = `✅ <b>אושר</b> — ${scheduled} פוסטים/סטוריז תוזמנו` +
-            (failures.length ? `\n⚠️ ${failures.length} נכשלו:\n${failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+          const n = await approveRun(runId)
+          const summary = n
+            ? `✅ <b>אושר</b> — ${n} פריטים בתור לפרסום\n• 15 דקות לפני כל פרסום אשלח לך את התוכן עצמו\n• ורק אחרי הלחיצה שלך הוא יעלה`
+            : '⚠️ לא נמצאו פריטים ממתינים להרצה הזו — כנראה כבר אושרה'
           await edit(fit(original, summary))
         } catch (e) {
           await edit(fit(original, `❌ <b>האישור נכשל</b>: ${escapeHtml(e.message)}`))
         }
+        return res.status(200).end()
+      }
+
+      if ((cq.data || '').startsWith('rel:')) {
+        const [, action, rowId] = cq.data.split(':')
+        const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        await answerCallbackQuery(cq.id, action === 'go' ? 'מתזמן…' : 'בסדר')
+        const head = escapeHtml(cq.message.text || '').split('\n')[0]
+        let result
+        try {
+          if (action === 'go') {
+            const r = await releaseGroup(rowId)
+            result = r.scheduled
+              ? `✅ <b>אושר לפרסום</b> — ${r.scheduled} פריטים יעלו ${heSlot(r.dueAt)}` + (r.failures.length ? `\n⚠️ ${r.failures.length} נכשלו:\n${r.failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+              : `⚠️ ${r.failures.map(escapeHtml).join('\n')}`
+          } else if (action === 'later') {
+            const next = await postponeGroup(rowId, 24)
+            result = next ? `⏭ <b>נדחה ליום הבא</b> — תקבל תזכורת שוב לפני ${heSlot(next)}` : '⚠️ אין מה לדחות — כבר טופל'
+          } else {
+            const n = await skipGroup(rowId)
+            result = n ? `🗑 <b>בוטל</b> — ${n} פריטים לא יפורסמו (נשארים טיוטות ב-Buffer)` : '⚠️ אין מה לבטל — כבר טופל'
+          }
+        } catch (e) {
+          result = `❌ <b>הפעולה נכשלה</b>: ${escapeHtml(e.message)}`
+        }
+        await editMessageText(cbChatId, cq.message.message_id, `${head}\n\n${result}`, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
         return res.status(200).end()
       }
 
@@ -574,13 +561,13 @@ export default async function handler(req, res) {
     const inspiration = parseInspirationRequest(text)
     if (inspiration && owner && (text.startsWith('/inspire') || (await getMode(chatId, threadId)) === 'scout')) {
       await startInspiration(inspiration)
-      const what = inspiration.kind === 'video' ? 'סרטון קצר' : 'תמונה'
+      const what = inspiration.kind === 'video' ? 'סרטון קצר' : inspiration.kind === 'carousel' ? 'פוסט של כמה תמונות' : 'תמונה'
       await sendMessage(chatId, [
         `🔗 *קיבלתי* — לומד את הפוסט ויוצר ${what} בהשראתו`,
         inspiration.note ? `• ההנחיה שלך: ${inspiration.note}` : null,
         `• התוצאות יגיעו לכאן, ל-Generator ול-Dispatch (שם מאשרים)`,
         `• זמן משוער: ${inspiration.kind === 'video' ? '10-15' : '5-10'} דקות`,
-        inspiration.kind === 'image' ? '• רוצה סרטון? שלח שוב את הקישור עם המילה "סרטון"' : null,
+        inspiration.kind === 'image' ? '• רוצה סרטון או פוסט של כמה תמונות? שלח שוב את הקישור עם המילה "סרטון" / "קרוסלה"' : null,
       ].filter(Boolean).join('\n'), { ...threadOpts(threadId), disable_web_page_preview: true })
       return res.status(200).end()
     }
