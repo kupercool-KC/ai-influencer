@@ -282,6 +282,20 @@ def cmd_inspire(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_digest_he(args: argparse.Namespace) -> int:
+    """Print a short Hebrew {title, bullets} JSON digest of a file, for Telegram notifications.
+    Never fails the pipeline: on any error prints {"title": "", "bullets": []} and exits 0."""
+    from content_scout.digest_he import digest_file
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    try:
+        print(json.dumps(digest_file(api_key, args.kind, Path(args.file)), ensure_ascii=False))
+    except Exception as exc:  # noqa: BLE001 — a missing digest must not block posting
+        print(f"digest-he failed: {exc}", file=sys.stderr)
+        print(json.dumps({"title": "", "bullets": []}))
+    return 0
+
+
 def cmd_list_runs(args: argparse.Namespace) -> int:
     settings = load_settings()
     runs = storage.list_runs(settings.data_dir)
@@ -373,6 +387,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_inspire.add_argument("--kind", choices=["image", "video"], default="image")
     p_inspire.add_argument("--note", default=None, help="Extra direction from the owner, e.g. 'make it cozier'")
     p_inspire.set_defaults(func=cmd_inspire)
+
+    p_digest = sub.add_parser("digest-he", help="Short Hebrew digest (JSON) of an analysis/plan file, for Telegram.")
+    p_digest.add_argument("--kind", choices=["scan", "link", "plan"], required=True)
+    p_digest.add_argument("--file", required=True)
+    p_digest.set_defaults(func=cmd_digest_he)
 
     p_list = sub.add_parser("list-runs", help="List all runs.")
     p_list.set_defaults(func=cmd_list_runs)

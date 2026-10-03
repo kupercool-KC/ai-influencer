@@ -95,7 +95,7 @@ jobs:
           # Plain text, no parse_mode — the run's own output can contain
           # anything (stray backticks/asterisks), which would otherwise make
           # Telegram's Markdown parser reject the whole message.
-          TEXT="Run finished (exit $RUN_EXIT_CODE)${IN_LABEL:+ — $IN_LABEL}:"$'\n'"$RUN_OUTPUT"
+          TEXT="▶️ הרצת הקוד הסתיימה (קוד יציאה $RUN_EXIT_CODE)${IN_LABEL:+ — $IN_LABEL}:"$'\n'"$RUN_OUTPUT"
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg chat_id "$TELEGRAM_OWNER_CHAT_ID" --arg text "$TEXT" \
