@@ -30,6 +30,11 @@ on:
         default: "1"
         required: true
 
+# Two runs refreshing the same Higgsfield session at once would invalidate each other's token.
+concurrency:
+  group: higgsfield-session
+  cancel-in-progress: false
+
 env:
   HIGGSFIELD_WORKSPACE_ID: "464e34d3-f7ad-4da0-a24a-c00a94910a9b"
   # text2image_soul_v2 + a single image reference was tried first (the Soul id below is
@@ -77,13 +82,26 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: Install Higgsfield CLI + restore credentials
+      - name: Install Higgsfield CLI + restore its login from Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HIGGSFIELD_CREDENTIALS_B64: ${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}
         run: |
           npm i -g @higgsfield/cli
           mkdir -p ~/.config/higgsfield
-          echo "${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}" | base64 -d > ~/.config/higgsfield/credentials.json
+          # The session is kept in Supabase and rewritten after every run (see
+          # scripts/higgsfield-creds.mjs for why a static secret can't work). The old B64
+          # secret is only a first-run fallback for before the one-time seed has been done.
+          if ! node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" load; then
+            echo "$HIGGSFIELD_CREDENTIALS_B64" | base64 -d > ~/.config/higgsfield/credentials.json
+          fi
           chmod 600 ~/.config/higgsfield/credentials.json
           higgsfield workspace set "$HIGGSFIELD_WORKSPACE_ID"
+          # Force the CLI to refresh now, then persist immediately — so the new refresh token
+          # is safe in Supabase even if a later step fails.
+          higgsfield account status
+          node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" save
 
       - name: Scout — discover recent posts from Ivy's inspiration accounts
         id: scout
@@ -297,3 +315,20 @@ jobs:
             -H "Content-Type: application/json" \
             -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_DISPATCH_THREAD_ID" --arg text "$TEXT" --arg run_id "${{ steps.scout.outputs.run_id }}" \
                   '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML", reply_markup:{inline_keyboard:[[{text:"✅ Approve & schedule", callback_data:("approve_ivy:" + $run_id)}]]}}')"
+
+      - name: Save refreshed Higgsfield login back to Supabase
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" save || true
+
+      - name: Notify Telegram — pipeline failed
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          TEXT="❌ <b>Pipeline failed</b>"$'\n'"Nothing new was generated or scheduled by this run."$'\n\n'"Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg chat_id "$TELEGRAM_IVY_CHAT_ID" --argjson thread_id "$TELEGRAM_DISPATCH_THREAD_ID" --arg text "$TEXT" '{chat_id:$chat_id, message_thread_id:$thread_id, text:$text, parse_mode:"HTML", disable_web_page_preview:true}')"

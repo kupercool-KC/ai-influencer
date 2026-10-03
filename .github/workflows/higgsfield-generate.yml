@@ -45,6 +45,12 @@ on:
         required: false
         default: ""
 
+# Shared with ivy-daily-content.yml: two runs refreshing the same Higgsfield session at once
+# would invalidate each other's rotating token.
+concurrency:
+  group: higgsfield-session
+  cancel-in-progress: false
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -53,15 +59,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install Higgsfield CLI
         run: npm i -g @higgsfield/cli
 
-      - name: Restore Higgsfield credentials
+      - name: Restore Higgsfield login from Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HIGGSFIELD_CREDENTIALS_B64: ${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}
         run: |
           mkdir -p ~/.config/higgsfield
-          echo "${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}" | base64 -d > ~/.config/higgsfield/credentials.json
+          # See scripts/higgsfield-creds.mjs: the session is stored in Supabase and rewritten
+          # after each run because the refresh token rotates. B64 secret = first-run fallback.
+          if ! node scripts/higgsfield-creds.mjs load; then
+            echo "$HIGGSFIELD_CREDENTIALS_B64" | base64 -d > ~/.config/higgsfield/credentials.json
+          fi
           chmod 600 ~/.config/higgsfield/credentials.json
           higgsfield workspace set "$HIGGSFIELD_WORKSPACE_ID"
+          higgsfield account status
+          node scripts/higgsfield-creds.mjs save
 
       - name: Generate
         id: gen
@@ -159,3 +179,10 @@ jobs:
             -d @/tmp/payload.json
 
           echo "Wrote $IN_IMAGE_SLOT = $GEN_URL for influencer $IN_INFLUENCER_ID (media_assets + influencers)"
+
+      - name: Save refreshed Higgsfield login back to Supabase
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node scripts/higgsfield-creds.mjs save || true
