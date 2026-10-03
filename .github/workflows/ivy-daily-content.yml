@@ -106,12 +106,13 @@ jobs:
         run: |
           SKIP=false
           if [ "$EVENT" = "schedule" ]; then
-            ROW=$(curl -s "$SUPABASE_URL/rest/v1/owner_preferences?key=eq.pause_daily_generation&select=value" \
-              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
-            [ "$(jq 'length' <<< "$ROW" 2>/dev/null || echo 0)" -gt 0 ] && SKIP=true
+            # A failed lookup must never skip the day's run: treat it as "not paused".
+            ROW=$(curl -sf "$SUPABASE_URL/rest/v1/owner_preferences?key=eq.pause_daily_generation&select=value" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" || echo '[]')
+            if [ "$(jq 'length' <<< "$ROW" 2>/dev/null || echo 0)" -gt 0 ]; then SKIP=true; fi
           fi
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
-          [ "$SKIP" = "true" ] && echo "Daily generation is paused by the owner — nothing generated, no credits spent."
+          if [ "$SKIP" = "true" ]; then echo "Daily generation is paused by the owner — nothing generated, no credits spent."; fi
 
   content:
     needs: gate
