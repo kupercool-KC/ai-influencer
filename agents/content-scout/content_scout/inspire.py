@@ -183,7 +183,7 @@ def run_inspire(
     if kind == "video":
         days = [generate_video_plan(brief, persona_dir, api_key, extra_direction=direction)]
     else:
-        days = generate_daily_plan([brief], persona_dir, 1, api_key, extra_direction=direction)
+        days = generate_daily_plan([brief], persona_dir, 1, api_key, extra_direction=direction, kind=kind)
     write_content_plan(paths.run_dir, days)
     (paths.run_dir / "inspire.json").write_text(
         json.dumps({"url": url, "platform": platform, "author": raw.author_handle, "media_kind": media_kind, "kind": kind}),

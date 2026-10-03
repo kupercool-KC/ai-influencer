@@ -125,9 +125,18 @@ def _collect_inspiration(briefs: list[dict[str, Any]]) -> str:
     return "\n".join(lines) or "(no analyzed inspiration posts in this run — write from the persona profile alone)"
 
 
+CAROUSEL_ADDON = """
+CAROUSEL DAYS: the feed post is a multi-photo carousel. Each day entry must ALSO include
+"carousel_prompts": an array of exactly 4 Higgsfield prompts for slides 1-4 (slide 1 = the
+"generation_prompt"). All 4 slides are the SAME day — same outfit, same location, same light — but a
+different pose/angle/micro-moment each, reading as a tiny story (e.g. arrival -> the moment -> a detail
+shot -> a closing frame). They follow the same hard rules as every other prompt (identity opener, scene
+only, 4:5 vertical). "caption" should work for the whole set. Keep the Story fields as described above."""
+
+
 def generate_daily_plan(
     briefs: list[dict[str, Any]], persona_dir: Path, num_days: int, api_key: str,
-    extra_direction: str | None = None,
+    extra_direction: str | None = None, kind: str = "image",
 ) -> list[dict[str, Any]]:
     """Returns a list of {generation_prompt, caption, hashtags} dicts, length num_days.
 
@@ -163,13 +172,19 @@ post, and vary each day from the others.
 
 {STORIES_GUIDANCE}
 
-{PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}
+{PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}{CAROUSEL_ADDON if kind == "carousel" else ""}
 """
-    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=2000 * max(num_days, 1) + 800)
+    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=(3200 if kind == "carousel" else 2000) * max(num_days, 1) + 800)
     data = json.loads(_strip_fences(raw))
     days = data["days"]
     if len(days) != num_days:
         raise ValueError(f"Expected {num_days} day(s), Claude returned {len(days)}")
+    if kind == "carousel":
+        for d in days:
+            slides = d.get("carousel_prompts") or []
+            if len(slides) < 2:
+                raise ValueError("Carousel plan came back without carousel_prompts")
+            d["carousel_prompts"] = slides[:10]
     return days
 
 

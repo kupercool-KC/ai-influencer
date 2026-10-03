@@ -34,9 +34,9 @@ on:
         default: ""
         required: false
       inspiration_kind:
-        description: "With inspiration_url: make an image (feed + stories) or a short video (Reel + TikTok)"
+        description: "Format: image (feed photo + stories), carousel (multi-photo post), or video (Reel + TikTok). Applies to a pasted link and to the normal scan."
         type: choice
-        options: [image, video]
+        options: [image, carousel, video]
         default: image
         required: false
       inspiration_note:
@@ -229,12 +229,14 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_NUM_DAYS: ${{ inputs.num_days }}
+          IN_KIND: ${{ inputs.inspiration_kind }}
         run: |
           NUM_DAYS="${IN_NUM_DAYS:-1}"
           python -m content_scout.cli plan \
             --run-id "${{ steps.run.outputs.run_id }}" \
             --persona-dir "../../docs/personas/Ivy Vale" \
-            --num-days "$NUM_DAYS"
+            --num-days "$NUM_DAYS" \
+            --kind "${IN_KIND:-image}"
           echo "--- content_plan.json ---"
           cat "data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
 
@@ -254,6 +256,7 @@ jobs:
             TEXT="$TEXT"$'\n'"💬 יום $((i + 1)) — כיתוב: \"$CAPTION\""
             DETAILS="$DETAILS"$'\n'"<b>יום $((i + 1))</b>"
             DETAILS="$DETAILS"$'\n'"תמונת פיד/פריים ראשון: $(esc "$(jq -r ".days[$i].generation_prompt" "$PLAN_FILE" | cut -c1-700)")"
+            NS=$(jq -r ".days[$i].carousel_prompts | length // 0" "$PLAN_FILE"); [ "$NS" -gt 1 ] && DETAILS="$DETAILS"$'\n'"קרוסלה — $NS תמונות"
             SP=$(jq -r ".days[$i].story_prompt // empty" "$PLAN_FILE"); [ -n "$SP" ] && DETAILS="$DETAILS"$'\n'"סטורי: $(esc "$(cut -c1-500 <<< "$SP")")"
             ST=$(jq -r ".days[$i].story_text // empty" "$PLAN_FILE"); [ -n "$ST" ] && DETAILS="$DETAILS"$'\n'"טקסט סטורי: $(esc "$ST")"
             VP=$(jq -r ".days[$i].video_prompt // empty" "$PLAN_FILE"); [ -n "$VP" ] && DETAILS="$DETAILS"$'\n'"פרומפט וידאו: $(esc "$(cut -c1-1200 <<< "$VP")")"
@@ -350,13 +353,27 @@ jobs:
               continue
             fi
 
-            IMAGE_URL=$(higgsfield generate create nano_banana_pro \
-              --prompt "$PROMPT" \
-              "${REF_FLAGS[@]}" \
-              --aspect_ratio 4:5 \
-              --resolution 2k \
-              --wait --wait-timeout 5m)
-            echo "Day $i image: $IMAGE_URL"
+            NSLIDES=$(jq -r ".days[$i].carousel_prompts | length // 0" "$PLAN_FILE")
+            SLIDE_URLS=()
+            if [ "$NSLIDES" -gt 1 ]; then
+              # CAROUSEL DAY: one 4:5 image per slide, same refs, same day/outfit/location.
+              for s in $(seq 0 $((NSLIDES - 1))); do
+                SLIDE_PROMPT=$(jq -r ".days[$i].carousel_prompts[$s]" "$PLAN_FILE")
+                U=$(higgsfield generate create nano_banana_pro --prompt "$SLIDE_PROMPT" "${REF_FLAGS[@]}" \
+                      --aspect_ratio 4:5 --resolution 2k --wait --wait-timeout 5m | tail -n 1)
+                echo "Day $i slide $((s + 1)): $U"
+                SLIDE_URLS+=("$U")
+              done
+              IMAGE_URL="${SLIDE_URLS[0]}"
+            else
+              IMAGE_URL=$(higgsfield generate create nano_banana_pro \
+                --prompt "$PROMPT" \
+                "${REF_FLAGS[@]}" \
+                --aspect_ratio 4:5 \
+                --resolution 2k \
+                --wait --wait-timeout 5m)
+              echo "Day $i image: $IMAGE_URL"
+            fi
 
             # Second image: a dedicated 9:16 Story shot — a different candid moment from the
             # feed image, not a crop of it (see persona_content.py's story_prompt guidance).
@@ -372,10 +389,15 @@ jobs:
             fi
 
             # Show the owner the actual pictures that will go out (Generator topic).
+            if [ "$NSLIDES" -gt 1 ]; then
+              SLIDES_JSON=$(printf '%s\n' "${SLIDE_URLS[@]}" | jq -R . | jq -sc 'to_entries | map({type:"photo", url:.value, caption:("שקופית " + ((.key + 1) | tostring))})')
+              MEDIA_JSON=$(jq -c --arg s "$STORY_IMAGE_URL" --arg n "יום $((i + 1))" '. + (if $s != "" then [{type:"photo", url:$s, caption:($n + " — תמונת סטורי קנדיד")}] else [] end)' <<< "$SLIDES_JSON")
+            else
+              MEDIA_JSON=$(jq -nc --arg f "$IMAGE_URL" --arg s "$STORY_IMAGE_URL" --arg n "יום $((i + 1))" \
+                '[{type:"photo", url:$f, caption:($n + " — תמונת פיד (אינסטגרם + טיקטוק)")}] + (if $s != "" then [{type:"photo", url:$s, caption:($n + " — תמונת סטורי קנדיד")}] else [] end)')
+            fi
             node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_GENERATOR_THREAD_ID" \
-              --media "$(jq -nc --arg f "$IMAGE_URL" --arg s "$STORY_IMAGE_URL" --arg n "יום $((i + 1))" \
-                '[{type:"photo", url:$f, caption:($n + " — תמונת פיד (אינסטגרם + טיקטוק)")}] + (if $s != "" then [{type:"photo", url:$s, caption:($n + " — תמונת סטורי קנדיד")}] else [] end)')" \
-              || echo "warning: could not send the images to Telegram"
+              --media "$MEDIA_JSON" || echo "warning: could not send the images to Telegram"
 
             # TikTok rejects the feed image as-is: it's 1856x2304 (4:5, 2k) =
             # 4,276,224px, over TikTok's 2,073,600px cap (confirmed live via a
@@ -387,8 +409,18 @@ jobs:
             TIKTOK_IMAGE_URL="https://ai-influencer-lovat.vercel.app/api/img-proxy?fit=tiktok&url=${ENC_IMAGE_URL}"
 
             pushd ../dispatch > /dev/null
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
-            node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$TIKTOK_IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            if [ "$NSLIDES" -gt 1 ]; then
+              IG_IMAGES=$(IFS=,; echo "${SLIDE_URLS[*]}")
+              TT_IMAGES=""
+              for u in "${SLIDE_URLS[@]}"; do
+                TT_IMAGES="${TT_IMAGES:+$TT_IMAGES,}https://ai-influencer-lovat.vercel.app/api/img-proxy?fit=tiktok&url=$(printf '%s' "$u" | jq -sRr @uri)"
+              done
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --images "$IG_IMAGES" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --images "$TT_IMAGES" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            else
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_INSTAGRAM" --image "$IMAGE_URL" --text "$FULL_CAPTION" --platform instagram --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+              node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --image "$TIKTOK_IMAGE_URL" --text "$FULL_CAPTION" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
+            fi
             # Two Instagram Stories/day: (1) a genuinely new candid Story moment, (2) a quick
             # "go see my new post" nudge reusing the feed image — see persona_content.py's
             # STORIES_GUIDANCE for why the second one is a same-image nudge rather than a true
@@ -404,8 +436,14 @@ jobs:
             fi
             popd > /dev/null
 
-            jq --arg f "$IMAGE_URL" --arg sa "$SLOT_A" --arg sb "$SLOT_B" --arg c "$CAPTION" \
-              '. + [{kind:"image", image:$f, slot_a:$sa, slot_b:$sb, caption:$c}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
+            if [ "$NSLIDES" -gt 1 ]; then
+              SLIDES_ARR=$(printf '%s\n' "${SLIDE_URLS[@]}" | jq -R . | jq -sc .)
+              jq --argjson im "$SLIDES_ARR" --arg sa "$SLOT_A" --arg sb "$SLOT_B" --arg c "$CAPTION" \
+                '. + [{kind:"carousel", images:$im, image:$im[0], slot_a:$sa, slot_b:$sb, caption:$c}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
+            else
+              jq --arg f "$IMAGE_URL" --arg sa "$SLOT_A" --arg sb "$SLOT_B" --arg c "$CAPTION" \
+                '. + [{kind:"image", image:$f, slot_a:$sa, slot_b:$sb, caption:$c}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
+            fi
           done
 
       - name: Notify Telegram — Dispatcher confirmation
@@ -428,24 +466,30 @@ jobs:
           KIND=$(jq -r '.[0].kind // "image"' "$RUN_DIR/media.json" 2>/dev/null || echo image)
           if [ "$KIND" = "video" ]; then
             WHAT="ריל באינסטגרם + סרטון בטיקטוק"
+          elif [ "$KIND" = "carousel" ]; then
+            WHAT="קרוסלה ($(jq -r '.[0].images | length' "$RUN_DIR/media.json") תמונות) + 2 סטוריז באינסטגרם, ופוסט תמונות בטיקטוק"
           else
             WHAT="פוסט פיד + 2 סטוריז באינסטגרם, ופוסט תמונה בטיקטוק"
           fi
           HTML="📮 <b>Dispatcher — מוכן לאישור</b>"$'\n'"• נוצרו $CREATED טיוטות ב-Buffer: $WHAT"
           if [ "$MEDIA_COUNT" -ge 1 ]; then
             SA=$(jq -r '.[0].slot_a' "$RUN_DIR/media.json")
-            HTML="$HTML"$'\n'"• 🕘 יעלה אחרי אישור: $(he_slot "$SA")"
+            HTML="$HTML"$'\n'"• 🕘 מועד מתוכנן: $(he_slot "$SA")"
             if [ "$KIND" != "video" ]; then
               SB=$(jq -r '.[0].slot_b' "$RUN_DIR/media.json")
               HTML="$HTML"$'\n'"• סטורי תזכורת: $(he_slot "$SB")"
             fi
           fi
           [ "$ERRORS" != "0" ] && HTML="$HTML"$'\n'"• ⚠️ $ERRORS אזהרות/שגיאות — כדאי לבדוק את הלוג"
-          HTML="$HTML"$'\n\n'"👇 לחץ לתזמון, או ערוך קודם ב-Buffer."
-          KEYBOARD=$(jq -nc --arg d "approve_ivy:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר ותזמן", callback_data:$d}]]}')
+          HTML="$HTML"$'\n\n'"👇 אשר כדי להכניס לתור. 15 דקות לפני כל פרסום תקבל את התוכן ותאשר שוב — בלי זה שום דבר לא יעלה."
+          KEYBOARD=$(jq -nc --arg d "approve_ivy:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר לתור", callback_data:$d}]]}')
 
           SENT=false
-          if [ "$MEDIA_COUNT" -eq 1 ]; then
+          if [ "$MEDIA_COUNT" -eq 1 ] && [ "$KIND" = "carousel" ]; then
+            # An album can't carry buttons: show the slides, then the approval message below it.
+            node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_DISPATCH_THREAD_ID" \
+              --media "$(jq -c '.[0].images | map({type:"photo", url:.})' "$RUN_DIR/media.json")" || echo "warning: could not send the carousel preview"
+          elif [ "$MEDIA_COUNT" -eq 1 ]; then
             # One day: the picture/video itself carries the Approve button, so what you approve is what you see.
             if [ "$KIND" = "video" ]; then
               ITEM=$(jq -c '[{type:"video", url:.[0].video}]' "$RUN_DIR/media.json")

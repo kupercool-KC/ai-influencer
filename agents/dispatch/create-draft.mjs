@@ -7,6 +7,7 @@
 //   [--platform tiktok|instagram|youtube|facebook] [--influencer <id>] [--media-asset <uuid>]
 //   [--post-type post|story|reel]  (story/reel are Instagram-only; ignored/invalid for other platforms)
 //   [--video <url>]  (use INSTEAD of --image to queue a video: Instagram Reel or TikTok video)
+//   [--images <url1,url2,...>]  (use INSTEAD of --image for a multi-photo post: Instagram carousel / TikTok photo post)
 //   [--audio-mood "<vibe words>"]  (Instagram Stories only — see pickInstagramAudio below)
 //   [--run-id <id>] [--scheduled-for <iso8601>]  (recorded on the scheduled_dispatches row —
 //   run-id groups one day's drafts for the Telegram "Approve" button in api/telegram/webhook.js;
@@ -103,12 +104,12 @@ async function recordDispatch({ influencerId, mediaAssetId, platform, bufferPost
 
 async function main() {
   const {
-    channel, image, video, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
+    channel, image, images, video, text, platform, influencer: influencerId, 'media-asset': mediaAssetId,
     'post-type': postType = video && platform === 'instagram' ? 'reel' : 'post', 'audio-mood': audioMood,
     'run-id': runId, 'scheduled-for': scheduledFor,
   } = parseArgs(process.argv.slice(2))
-  if (!channel || !(image || video) || !text) {
-    console.error('Usage: node create-draft.mjs --channel <channelId> (--image <url> | --video <url>) --text "<caption>"')
+  if (!channel || !(image || images || video) || !text) {
+    console.error('Usage: node create-draft.mjs --channel <channelId> (--image <url> | --images <urls> | --video <url>) --text "<caption>"')
     process.exit(1)
   }
   if ((postType === 'story' || postType === 'reel') && platform !== 'instagram') {
@@ -158,7 +159,9 @@ async function main() {
       schedulingType: 'automatic',
       mode: 'addToQueue',
       saveToDraft: true,
-      assets: [video ? { video: { url: video } } : { image: { url: image } }],
+      assets: video
+        ? [{ video: { url: video } }]
+        : (images ? images.split(',').map(u => ({ image: { url: u.trim() } })) : [{ image: { url: image } }]),
       ...(metadata ? { metadata } : {}),
     },
   }
