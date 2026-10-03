@@ -567,7 +567,7 @@ export default async function handler(req, res) {
         inspiration.note ? `• ההנחיה שלך: ${inspiration.note}` : null,
         `• התוצאות יגיעו לכאן, ל-Generator ול-Dispatch (שם מאשרים)`,
         `• זמן משוער: ${inspiration.kind === 'video' ? '10-15' : '5-10'} דקות`,
-        inspiration.kind === 'image' ? '• רוצה סרטון או פוסט של כמה תמונות? שלח שוב את הקישור עם המילה "סרטון" / "קרוסלה"' : null,
+        inspiration.kind === 'carousel' ? '• רוצה סרטון או תמונה אחת? שלח שוב את הקישור עם המילה "סרטון" / "תמונה אחת"' : null,
       ].filter(Boolean).join('\n'), { ...threadOpts(threadId), disable_web_page_preview: true })
       return res.status(200).end()
     }

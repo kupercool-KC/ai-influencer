@@ -348,6 +348,16 @@ Buffer's free plan also caps scheduled posts at 10, so this keeps the real queue
 Formats: single image (+2 Stories), **carousel** (4 slides, one IG carousel + one TikTok photo post),
 video (Reel + TikTok video).
 
+### 12.2 Standing content direction (Iddo, 2026-10-03)
+
+Encoded in `persona_content.py` and applied to every plan (image, carousel, video):
+- **Instagram**: one sentence max, 2-4 hashtags; posts of 1-5 related photos preferred (carousel = default format).
+- **TikTok**: its own long, natural, unfiltered caption (many sentences, thinking-out-loud) with 10-20 hashtags
+  (`tiktok_caption` / `tiktok_hashtags` in the plan).
+- **Season**: wardrobe/light/water follow the real current Byron Bay season (`byron_season_note`).
+- **Direction**: more revealing/provocative yoga content (swimwear, low-cut sets, sensual but natural). Hard limits:
+  adult only, no nudity, nothing explicit (platform enforcement + generator filters).
+
 ## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.
