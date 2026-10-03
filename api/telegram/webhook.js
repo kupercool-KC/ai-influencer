@@ -36,6 +36,7 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
+import { runReleaseReminders } from '../../lib/releaseReminders.js'
 import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, heSlot } from '../../lib/releaseGate.js'
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
@@ -365,6 +366,10 @@ function allowedChatIds() {
 }
 
 export default async function handler(req, res) {
+  // pg_cron's every-minute call for the 15-minutes-before prompts (see lib/releaseReminders.js) —
+  // routed here to stay under Vercel Hobby's 12-function cap; it authenticates itself.
+  if (req.query?.job === 'release-reminders') return runReleaseReminders(req, res)
+
   if (req.method !== 'POST') return res.status(405).send('Method not allowed')
 
   // Fail closed: if the secret isn't configured, reject everything rather
