@@ -49,7 +49,7 @@ async function approveIvyRun(runId) {
   const db = supabaseAdmin()
   const { data: rows, error } = await db.from('scheduled_dispatches').select('*').eq('run_id', runId).eq('status', 'pending')
   if (error) throw new Error(`Supabase lookup failed: ${error.message}`)
-  if (!rows?.length) return { scheduled: 0, failures: ['no pending drafts found for this run — already approved, or run_id not recorded (check SUPABASE_URL/KEY are set on the workflow)'] }
+  if (!rows?.length) return { scheduled: 0, failures: ['לא נמצאו טיוטות ממתינות להרצה הזו — כנראה כבר אושרה'] }
 
   let scheduled = 0
   const failures = []
@@ -256,6 +256,11 @@ function toolsForMode(mode) {
   return TOOLS.filter(t => names.has(t.name))
 }
 
+const STYLE_CONTEXT = `Reply style (always): write in Hebrew (product names, platform names and the English captions that
+go out to followers stay in English). Be brief and easy to scan on a phone: lead with the answer, then
+a few bullets (•), bold the key words/headings with *asterisks*. No walls of text, no technical jargon
+or internals unless asked — only what the owner needs to know or decide. Offer details on request.`
+
 const TOOLS_CONTEXT = `The tools you have access to (only what this agent needs — other data or
 actions genuinely belong to a different tab/topic) let you read and write the app's live data
 (Supabase rows). Use them whenever the user asks a question about current data or asks you to
@@ -347,7 +352,7 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
   const [personaSummary, contextDoc] = await Promise.all([livePersonaSummary(), fetchContextDoc()])
-  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
@@ -421,7 +426,7 @@ export default async function handler(req, res) {
 
       if ((cq.data || '').startsWith('approve_ivy:')) {
         const runId = cq.data.slice('approve_ivy:'.length)
-        await answerCallbackQuery(cq.id, 'Scheduling…')
+        await answerCallbackQuery(cq.id, 'מתזמן…')
         // cq.message.text comes back already decoded (entities stripped), so it must be
         // re-escaped before resending with parse_mode HTML, or a stray &/</> from a
         // generated caption would either vanish or break the edit outright.
@@ -440,11 +445,11 @@ export default async function handler(req, res) {
         const original = (isMedia ? cq.message.caption : cq.message.text) || ''
         try {
           const { scheduled, failures } = await approveIvyRun(runId)
-          const summary = `✅ <b>Approved</b> — ${scheduled} post(s)/story(ies) scheduled.` +
-            (failures.length ? `\n⚠️ ${failures.length} failed:\n${failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+          const summary = `✅ <b>אושר</b> — ${scheduled} פוסטים/סטוריז תוזמנו` +
+            (failures.length ? `\n⚠️ ${failures.length} נכשלו:\n${failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
           await edit(fit(original, summary))
         } catch (e) {
-          await edit(fit(original, `❌ <b>Approve failed</b>: ${escapeHtml(e.message)}`))
+          await edit(fit(original, `❌ <b>האישור נכשל</b>: ${escapeHtml(e.message)}`))
         }
         return res.status(200).end()
       }
@@ -569,17 +574,18 @@ export default async function handler(req, res) {
     const inspiration = parseInspirationRequest(text)
     if (inspiration && owner && (text.startsWith('/inspire') || (await getMode(chatId, threadId)) === 'scout')) {
       await startInspiration(inspiration)
-      const what = inspiration.kind === 'video' ? 'a short video' : 'an image'
+      const what = inspiration.kind === 'video' ? 'סרטון קצר' : 'תמונה'
       await sendMessage(chatId, [
-        `🔗 Got it — I'll study this post and make ${what} inspired by it.`,
-        inspiration.note ? `Your direction: "${inspiration.note}"` : null,
-        `You'll see the results here, then in Generator and Dispatch (where you approve). Takes about ${inspiration.kind === 'video' ? '10-15' : '5-10'} minutes.`,
-        inspiration.kind === 'image' ? 'Want a video instead? Send the link again with the word "video".' : null,
+        `🔗 *קיבלתי* — לומד את הפוסט ויוצר ${what} בהשראתו`,
+        inspiration.note ? `• ההנחיה שלך: ${inspiration.note}` : null,
+        `• התוצאות יגיעו לכאן, ל-Generator ול-Dispatch (שם מאשרים)`,
+        `• זמן משוער: ${inspiration.kind === 'video' ? '10-15' : '5-10'} דקות`,
+        inspiration.kind === 'image' ? '• רוצה סרטון? שלח שוב את הקישור עם המילה "סרטון"' : null,
       ].filter(Boolean).join('\n'), { ...threadOpts(threadId), disable_web_page_preview: true })
       return res.status(200).end()
     }
     if (text.startsWith('/inspire')) {
-      await sendMessage(chatId, 'Send `/inspire <Instagram or TikTok link> [video] [what to change]` — or just paste the link here in the Scout topic.', threadOpts(threadId))
+      await sendMessage(chatId, 'שלח `/inspire <קישור אינסטגרם או טיקטוק> [סרטון] [מה לשנות]` — או פשוט הדבק את הקישור כאן בטופיק Scout.', threadOpts(threadId))
       return res.status(200).end()
     }
 

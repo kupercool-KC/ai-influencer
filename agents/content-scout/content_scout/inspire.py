@@ -40,7 +40,7 @@ def detect_platform(url: str) -> str:
         return "instagram"
     if host.endswith("tiktok.com"):
         return "tiktok"
-    raise InspirationError("I can only learn from Instagram or TikTok links for now.")
+    raise InspirationError("אני יודע ללמוד רק מקישורים של אינסטגרם או טיקטוק.")
 
 
 def _resolve_short_link(url: str) -> str:
@@ -87,8 +87,8 @@ def _discover(url: str, platform: str, settings: Settings) -> RawVideo:
         raw = discover_single_url(url, settings)
     if raw is None:
         raise InspirationError(
-            "I couldn't open that post — it may be private, deleted, or Instagram showed a login wall. "
-            "Try another link, or send a screenshot instead."
+            "לא הצלחתי לפתוח את הפוסט — ייתכן שהוא פרטי, נמחק, או שאינסטגרם ביקשה התחברות. "
+            "נסה קישור אחר."
         )
     return raw
 
@@ -126,7 +126,7 @@ def _keyframes(raw: RawVideo, platform: str, video_dir: Path) -> tuple[list[Path
           f"raw keys={sorted(raw.raw)[:25]})", file=sys.stderr)
     frames = _fetch_images(urls, frames_dir)
     if not frames:
-        raise InspirationError("I opened the post but couldn't get its picture or video.")
+        raise InspirationError("הפוסט נפתח אבל לא הצלחתי להוריד ממנו תמונה או סרטון.")
     return frames, "image"
 
 

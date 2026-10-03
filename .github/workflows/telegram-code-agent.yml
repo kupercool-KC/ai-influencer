@@ -106,17 +106,17 @@ jobs:
           fi
 
           if [ "$AGENT_CONCLUSION" != "success" ] || [ -z "$AGENT_OUTPUT" ]; then
-            TEXT="⚠️ Code agent run failed${IN_LABEL:+ — $IN_LABEL}. Nothing was opened. Check the run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            TEXT="⚠️ סוכן הקוד נכשל${IN_LABEL:+ — $IN_LABEL}"$'\n'"• לא נפתח שום PR"$'\n'"• לוג: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           else
             OK=$(echo "$AGENT_OUTPUT" | jq -r '.ok // false')
-            SUMMARY=$(echo "$AGENT_OUTPUT" | jq -r '.summary // "(no summary)"')
+            SUMMARY=$(echo "$AGENT_OUTPUT" | jq -r '.summary // "(אין סיכום)"')
             if [ "$OK" = "true" ]; then
               PR_URL=$(echo "$AGENT_OUTPUT" | jq -r '.pr_url // ""')
-              TEXT="✅ Code agent finished${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"
-              if [ -n "$PR_URL" ]; then TEXT="$TEXT"$'\n\n'"Review & merge: $PR_URL"; fi
+              TEXT="✅ סוכן הקוד סיים${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"
+              if [ -n "$PR_URL" ]; then TEXT="$TEXT"$'\n\n'"👉 לבדיקה ולמיזוג: $PR_URL"; fi
             else
-              ERROR=$(echo "$AGENT_OUTPUT" | jq -r '.error // "no reason given"')
-              TEXT="⚠️ Code agent stopped without opening a PR${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"$'\n\n'"Reason: $ERROR"
+              ERROR=$(echo "$AGENT_OUTPUT" | jq -r '.error // "לא צוינה סיבה"')
+              TEXT="⚠️ סוכן הקוד עצר בלי לפתוח PR${IN_LABEL:+ — $IN_LABEL}"$'\n\n'"$SUMMARY"$'\n\n'"סיבה: $ERROR"
             fi
           fi
 
