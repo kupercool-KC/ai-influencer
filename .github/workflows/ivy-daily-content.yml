@@ -271,6 +271,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -e
           RUN_DIR="data/runs/${{ steps.run.outputs.run_id }}"
@@ -343,19 +344,32 @@ jobs:
             if [ -n "$VIDEO_PROMPT" ]; then
               # VIDEO DAY (spec §2/§9.2): Stage A = 9:16 anchor still, Stage B = Seedance 2.0 Mini
               # image-to-video with the anchor as @image_1 and the character sheet as @image_2.
-              ANCHOR_URL=$(hf_gen nano_banana_pro \
-                --prompt "$PROMPT" "${REF_FLAGS[@]}" \
-                --aspect_ratio 9:16 --resolution 2k \
-                --wait --wait-timeout 5m)
-              echo "Day $i anchor image: $ANCHOR_URL"
-              curl -sSfL -o "$RUN_DIR/anchor.png" "$ANCHOR_URL"
-              VIDEO_URL=$(hf_gen seedance_2_0_mini \
-                --prompt "$VIDEO_PROMPT" \
-                --image-references "$RUN_DIR/anchor.png" \
-                --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
-                --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=false \
-                --wait --wait-timeout 20m)
-              echo "Day $i video: $VIDEO_URL"
+              # Every clip goes through a vision QA pass (same outfit/place, no burned-in text,
+              # modest, face visible) and is regenerated once if it fails — see video_review.py.
+              WARDROBE=$(jq -r ".days[$i].wardrobe // empty" "$PLAN_FILE")
+              ATTEMPT=1; QA_ISSUES=""
+              while true; do
+                ANCHOR_URL=$(hf_gen nano_banana_pro \
+                  --prompt "$PROMPT" "${REF_FLAGS[@]}" \
+                  --aspect_ratio 9:16 --resolution 2k \
+                  --wait --wait-timeout 5m)
+                echo "Day $i anchor image (attempt $ATTEMPT): $ANCHOR_URL"
+                curl -sSfL -o "$RUN_DIR/anchor.png" "$ANCHOR_URL"
+                VIDEO_URL=$(hf_gen seedance_2_0_mini \
+                  --prompt "$VIDEO_PROMPT" \
+                  --image-references "$RUN_DIR/anchor.png" \
+                  --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
+                  --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=false \
+                  --wait --wait-timeout 20m)
+                echo "Day $i video (attempt $ATTEMPT): $VIDEO_URL"
+                curl -sSfL -o "$RUN_DIR/video.mp4" "$VIDEO_URL"
+                REVIEW=$(python -m content_scout.cli review-video --video "$RUN_DIR/video.mp4" --wardrobe "$WARDROBE")
+                echo "QA verdict: $REVIEW"
+                if [ "$(jq -r '.ok' <<< "$REVIEW")" = "true" ]; then QA_ISSUES=""; break; fi
+                QA_ISSUES=$(jq -r '.issues_he | join("; ")' <<< "$REVIEW")
+                if [ "$ATTEMPT" -ge 2 ]; then echo "QA still failing after $ATTEMPT attempts — continuing with a warning"; break; fi
+                ATTEMPT=$((ATTEMPT + 1)); echo "QA failed ($QA_ISSUES) — regenerating"
+              done
 
               node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_GENERATOR_THREAD_ID" \
                 --media "$(jq -nc --arg a "$ANCHOR_URL" --arg v "$VIDEO_URL" --arg n "יום $((i + 1))" \
@@ -367,8 +381,8 @@ jobs:
               node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --video "$VIDEO_URL" --text "$TT_TEXT" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
               popd > /dev/null
 
-              jq --arg v "$VIDEO_URL" --arg a "$ANCHOR_URL" --arg sa "$SLOT_A" --arg c "$CAPTION" \
-                '. + [{kind:"video", video:$v, image:$a, slot_a:$sa, caption:$c}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
+              jq --arg v "$VIDEO_URL" --arg a "$ANCHOR_URL" --arg sa "$SLOT_A" --arg c "$CAPTION" --arg q "$QA_ISSUES" \
+                '. + [{kind:"video", video:$v, image:$a, slot_a:$sa, caption:$c, qa_issues:$q}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
               continue
             fi
 
@@ -498,6 +512,10 @@ jobs:
               SB=$(jq -r '.[0].slot_b' "$RUN_DIR/media.json")
               HTML="$HTML"$'\n'"• סטורי תזכורת: $(he_slot "$SB")"
             fi
+          fi
+          if [ "$KIND" = "video" ]; then
+            QA=$(jq -r '.[0].qa_issues // ""' "$RUN_DIR/media.json")
+            if [ -n "$QA" ]; then HTML="$HTML"$'\n'"• ⚠️ בדיקת איכות: $(esc "$QA") — כדאי לבקש גרסה חדשה"; else HTML="$HTML"$'\n'"• ✅ בדיקת איכות אוטומטית עברה"; fi
           fi
           [ "$ERRORS" != "0" ] && HTML="$HTML"$'\n'"• ⚠️ $ERRORS אזהרות/שגיאות — כדאי לבדוק את הלוג"
           HTML="$HTML"$'\n\n'"👇 אשר כדי להכניס לתור. 15 דקות לפני כל פרסום תקבל את התוכן ותאשר שוב — בלי זה שום דבר לא יעלה."
