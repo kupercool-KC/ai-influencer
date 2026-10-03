@@ -261,6 +261,11 @@ actions genuinely belong to a different tab/topic) let you read and write the ap
 (Supabase rows). Use them whenever the user asks a question about current data or asks you to
 change data. You CANNOT change database schema or run migrations from here, regardless of tools.
 
+Whenever the owner wants to SEE something — a draft, a scheduled post, a generated image or video —
+send the actual picture/video into this chat with show_buffer_post (for Buffer posts) or show_media
+(any direct URL) instead of just describing it or pasting a link. Everything the pipeline makes
+should be viewable right here in Telegram.
+
 If propose_code_change is among your tools: it queues a PR-gated agent run (a fresh Claude Code
 instance with actual repo access) for real code changes, documentation updates, or building a new
 system in the repo, and the result (PR link, or why it stopped) arrives as a follow-up message a few
@@ -368,7 +373,7 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
     for (const block of content) {
       if (block.type !== 'tool_use') continue
       try {
-        const result = await runTool(block.name, block.input || {})
+        const result = await runTool(block.name, block.input || {}, { chatId, threadId })
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
       } catch (e) {
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${e.message}`, is_error: true })
