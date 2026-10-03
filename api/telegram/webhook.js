@@ -33,10 +33,11 @@
 // propose_code_change, open real pull requests.
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
+import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, downloadTelegramFile, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
 import { runReleaseReminders } from '../../lib/releaseReminders.js'
+import { createManualPost, uploadToStorage, TRIGGER_RE } from '../../lib/manualPost.js'
 import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, heSlot } from '../../lib/releaseGate.js'
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
@@ -563,6 +564,44 @@ export default async function handler(req, res) {
           await setMode(chatId, editThreadId, detected, name)
           await sendMessage(chatId, `✅ Re-wired to *${detected}* — ${ROLE_SUMMARY[detected]}`, threadOpts(editThreadId))
         }
+      }
+      return res.status(200).end()
+    }
+
+    // POST BY MESSAGE: the owner sends photo(s)/video with a caption (in the Dispatch topic, or anywhere with
+    // a word like "פרסם/תעלה") and the bot posts them. "עכשיו" in the caption = publish now (the explicit
+    // instruction is the approval); otherwise it is queued for the next evening slot with the usual
+    // 15-minutes-before prompt. Caption words pick the platform (אינסטגרם/טיקטוק; both by default) and "סטורי".
+    const mediaFile = msg.photo ? { id: msg.photo[msg.photo.length - 1].file_id, kind: 'photo' }
+      : msg.video ? { id: msg.video.file_id, kind: 'video' }
+      : (msg.document && /^(image|video)\//.test(msg.document.mime_type || '')) ? { id: msg.document.file_id, kind: msg.document.mime_type.startsWith('video') ? 'video' : 'photo' }
+      : null
+    if (mediaFile && owner && ((await getMode(chatId, threadId)) === 'dispatch' || TRIGGER_RE.test(msg.caption || ''))) {
+      const db = supabaseAdmin()
+      const { bytes, ext } = await downloadTelegramFile(mediaFile.id)
+      const url = await uploadToStorage(bytes, mediaFile.kind === 'video' ? (ext === 'mov' ? 'mov' : 'mp4') : (['png', 'webp'].includes(ext) ? ext : 'jpg'))
+      await db.from('telegram_uploads').insert({ chat_id: String(chatId), thread_id: threadId, message_id: msg.message_id, media_group_id: msg.media_group_id || null, kind: mediaFile.kind, url, caption: msg.caption || null })
+      let items = [{ kind: mediaFile.kind, url }]
+      let caption = msg.caption || ''
+      if (msg.media_group_id) {
+        // An album arrives as separate messages; the first one waits for the rest, the others just store theirs.
+        await new Promise(r => setTimeout(r, 3500))
+        const { data: group } = await db.from('telegram_uploads').select('*').eq('media_group_id', msg.media_group_id).order('message_id')
+        if (!group?.length || Number(group[0].message_id) !== msg.message_id) return res.status(200).end()
+        items = group.map(g => ({ kind: g.kind, url: g.url }))
+        caption = group.map(g => g.caption).find(Boolean) || ''
+      }
+      await sendMessage(chatId, '⏳ מכין את הפוסט…', threadOpts(threadId))
+      try {
+        const r = await createManualPost(items, caption)
+        const body = r.now
+          ? (r.scheduled
+            ? `✅ *נשלח לפרסום*\n${r.lines.map(l => `• ${l}`).join('\n')}\n• יעלה בעוד כ-2 דקות`
+            : `⚠️ *הפרסום לא הצליח*\n${r.failures.slice(0, 3).map(f => `• ${f}`).join('\n')}`)
+          : `📥 *נשמר בתור*\n${r.lines.map(l => `• ${l}`).join('\n')}\n• מועד: ${heSlot(r.dueAt)}\n• 15 דקות לפני תקבל את התוכן ותאשר פרסום\n• רוצה מיד? כתוב "עכשיו" בכיתוב`
+        await sendMessage(chatId, body + (r.now && r.failures.length && r.scheduled ? `\n⚠️ ${r.failures.slice(0, 2).join('; ')}` : ''), threadOpts(threadId))
+      } catch (e) {
+        await sendMessage(chatId, `❌ *לא הצלחתי ליצור את הפוסט*\n• ${e.message}`, threadOpts(threadId))
       }
       return res.status(200).end()
     }

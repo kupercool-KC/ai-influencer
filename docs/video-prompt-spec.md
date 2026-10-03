@@ -358,6 +358,16 @@ Encoded in `persona_content.py` and applied to every plan (image, carousel, vide
 - **Direction**: more revealing/provocative yoga content (swimwear, low-cut sets, sensual but natural). Hard limits:
   adult only, no nudity, nothing explicit (platform enforcement + generator filters).
 
+### 12.3 Post by message (added 2026-10-03)
+
+The owner can post without the pipeline: send photo(s) / a video (or an album) with a caption in the Dispatch topic
+(or anywhere with a word like פרסם/תעלה). Files are copied to the public `post-media` storage bucket
+(Telegram URLs contain the bot token), Buffer drafts are created, and: **"עכשיו" in the caption publishes in ~2 min**
+(the explicit instruction is the approval); otherwise the post is queued for the next 21:00 UTC slot with the usual
+15-minutes-before prompt. Caption words choose the platform (אינסטגרם / טיקטוק, both by default) and "סטורי".
+Photos → IG post/carousel (up to 10) + TikTok photo post; video → IG Reel + TikTok video; AI label on all.
+Code: `lib/manualPost.js`, handler in `api/telegram/webhook.js`.
+
 ## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.

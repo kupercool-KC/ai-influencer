@@ -13,6 +13,9 @@ const ALLOWED_HOSTS = [
   'oaidallexprodscus.blob.core.windows.net',
 ]
 
+// Photos sent to the bot ("post by message") live in our own Supabase storage bucket.
+try { if (process.env.SUPABASE_URL) ALLOWED_HOSTS.push(new URL(process.env.SUPABASE_URL).hostname) } catch { /* no SUPABASE_URL */ }
+
 function isSafeUrl(raw) {
   try {
     const u = new URL(decodeURIComponent(raw))
