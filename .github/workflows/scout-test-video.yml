@@ -39,10 +39,12 @@ jobs:
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
 
-      - name: TEMP review-video smoke test
+      - name: Run test-video
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_VIDEO_URL: ${{ inputs.video_url }}
+          IN_PERSONA_DIR: ${{ inputs.persona_dir }}
         run: |
-          curl -sSfL -o v.mp4 "$IN_VIDEO_URL"
-          python -m content_scout.cli review-video --video v.mp4 --wardrobe "cream linen pyjama set, sage knit socks"
+          python -m content_scout.cli test-video \
+            --url "$IN_VIDEO_URL" \
+            --persona-dir "../../$IN_PERSONA_DIR"

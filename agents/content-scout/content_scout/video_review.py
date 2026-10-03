@@ -23,8 +23,10 @@ Check strictly but fairly (a close crop of legs/feet is fine, a different camera
 - same_outfit_throughout: she wears the SAME clothes in every frame where clothing is visible.
 - same_location_throughout: it is the same room/place and time of day in every frame (no jump to another room or day).
 - on_screen_text: ANY visible text, letters, day names, labels, captions or watermarks burned into the video.
-- fully_clothed_modest: in EVERY frame she is clearly in everyday clothing — nothing that reads as underwear,
-  sleepwear, undressed, or revealing.
+- fully_clothed_modest: in EVERY frame she is clearly in everyday clothing — fail ONLY for what reads as underwear,
+  sleepwear, undressed, see-through or a deep plunging neckline. Ordinary tops, V-necks, slip dresses and
+  activewear are fine.
+- Distant passers-by or tiny background people are fine; fail only if a second person is a main subject.
 - face_visible: her face is clearly visible in at least a third of the frames.
 ok = same_outfit_throughout AND same_location_throughout AND NOT on_screen_text AND fully_clothed_modest AND face_visible.
 
