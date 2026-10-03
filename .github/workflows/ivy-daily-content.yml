@@ -278,6 +278,19 @@ jobs:
           echo "Generating $COUNT day(s) of content..."
           echo '[]' > "$RUN_DIR/media.json"
 
+          # Higgsfield answers a transient 5xx now and then (a 503 killed a whole run on 2026-10-03):
+          # retry those up to 3 times; any other error fails immediately. Prints only the result URL.
+          hf_gen() {
+            local n=0 out
+            until out=$(higgsfield generate create "$@" 2>&1); do
+              n=$((n + 1))
+              if [ "$n" -ge 3 ] || ! grep -q "HTTP 5" <<< "$out"; then echo "$out" >&2; return 1; fi
+              echo "higgsfield 5xx, retrying ($n/3)..." >&2; sleep 20
+            done
+            tail -n 1 <<< "$out"
+          }
+
+
           # Posting cadence (spec §12): Slot A (feed + candid story) = next AU morning /
           # US evening window; Slot B (reminder story, the day after Slot A) = US morning
           # peak window. These are stored on the row as OUR intended send time only — the
@@ -324,18 +337,18 @@ jobs:
             if [ -n "$VIDEO_PROMPT" ]; then
               # VIDEO DAY (spec §2/§9.2): Stage A = 9:16 anchor still, Stage B = Seedance 2.0 Mini
               # image-to-video with the anchor as @image_1 and the character sheet as @image_2.
-              ANCHOR_URL=$(higgsfield generate create nano_banana_pro \
+              ANCHOR_URL=$(hf_gen nano_banana_pro \
                 --prompt "$PROMPT" "${REF_FLAGS[@]}" \
                 --aspect_ratio 9:16 --resolution 2k \
-                --wait --wait-timeout 5m | tail -n 1)
+                --wait --wait-timeout 5m)
               echo "Day $i anchor image: $ANCHOR_URL"
               curl -sSfL -o "$RUN_DIR/anchor.png" "$ANCHOR_URL"
-              VIDEO_URL=$(higgsfield generate create seedance_2_0_mini \
+              VIDEO_URL=$(hf_gen seedance_2_0_mini \
                 --prompt "$VIDEO_PROMPT" \
                 --image-references "$RUN_DIR/anchor.png" \
                 --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
                 --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=false \
-                --wait --wait-timeout 20m | tail -n 1)
+                --wait --wait-timeout 20m)
               echo "Day $i video: $VIDEO_URL"
 
               node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_GENERATOR_THREAD_ID" \
@@ -359,14 +372,14 @@ jobs:
               # CAROUSEL DAY: one 4:5 image per slide, same refs, same day/outfit/location.
               for s in $(seq 0 $((NSLIDES - 1))); do
                 SLIDE_PROMPT=$(jq -r ".days[$i].carousel_prompts[$s]" "$PLAN_FILE")
-                U=$(higgsfield generate create nano_banana_pro --prompt "$SLIDE_PROMPT" "${REF_FLAGS[@]}" \
-                      --aspect_ratio 4:5 --resolution 2k --wait --wait-timeout 5m | tail -n 1)
+                U=$(hf_gen nano_banana_pro --prompt "$SLIDE_PROMPT" "${REF_FLAGS[@]}" \
+                      --aspect_ratio 4:5 --resolution 2k --wait --wait-timeout 5m)
                 echo "Day $i slide $((s + 1)): $U"
                 SLIDE_URLS+=("$U")
               done
               IMAGE_URL="${SLIDE_URLS[0]}"
             else
-              IMAGE_URL=$(higgsfield generate create nano_banana_pro \
+              IMAGE_URL=$(hf_gen nano_banana_pro \
                 --prompt "$PROMPT" \
                 "${REF_FLAGS[@]}" \
                 --aspect_ratio 4:5 \
@@ -379,7 +392,7 @@ jobs:
             # feed image, not a crop of it (see persona_content.py's story_prompt guidance).
             STORY_IMAGE_URL=""
             if [ -n "$STORY_PROMPT" ]; then
-              STORY_IMAGE_URL=$(higgsfield generate create nano_banana_pro \
+              STORY_IMAGE_URL=$(hf_gen nano_banana_pro \
                 --prompt "$STORY_PROMPT" \
                 "${REF_FLAGS[@]}" \
                 --aspect_ratio 9:16 \
