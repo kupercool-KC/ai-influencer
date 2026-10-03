@@ -43,8 +43,22 @@ on:
         description: "With inspiration_url: extra direction, e.g. 'cozier, at sunset'"
         default: ""
         required: false
+      analyze_only:
+        description: "With inspiration_url: only look at the post and report what it is — plan and generate nothing"
+        type: boolean
+        default: false
+        required: false
+      plan_approval:
+        description: "Stop after the plan and wait for the owner's tap in Telegram before spending any credits (default: yes)"
+        type: boolean
+        default: true
+        required: false
+      resume_run_id:
+        description: "Produce a plan the owner already approved (its run_id) — skips scouting and planning"
+        default: ""
+        required: false
 
-run-name: "${{ inputs.inspiration_url != '' && format('Ivy from link ({0}): {1}', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
+run-name: "${{ inputs.resume_run_id != '' && format('Ivy produces approved plan: {0}', inputs.resume_run_id) || inputs.inspiration_url != '' && format('Ivy {0} ({1}): {2}', inputs.analyze_only && 'analyzes link' || 'from link', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
 
 # Two runs refreshing the same Higgsfield session at once would invalidate each other's token.
 concurrency:
@@ -75,7 +89,33 @@ env:
   TELEGRAM_DISPATCH_THREAD_ID: "7"
 
 jobs:
+  # The owner can pause the automatic daily generation from Telegram (preference key pause_daily_generation,
+  # e.g. "we already have enough pictures"). Only the SCHEDULED run honors it — a link he sends or a manual
+  # run always goes through. Resume by deleting that preference ("תחזור לייצר").
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - id: check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          SKIP=false
+          if [ "$EVENT" = "schedule" ]; then
+            ROW=$(curl -s "$SUPABASE_URL/rest/v1/owner_preferences?key=eq.pause_daily_generation&select=value" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+            [ "$(jq 'length' <<< "$ROW" 2>/dev/null || echo 0)" -gt 0 ] && SKIP=true
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          [ "$SKIP" = "true" ] && echo "Daily generation is paused by the owner — nothing generated, no credits spent."
+
   content:
+    needs: gate
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     defaults:
@@ -90,13 +130,28 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install Python dependencies
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
+
+      - name: Install repo Node packages (Supabase client for the helper scripts)
+        run: cd "$GITHUB_WORKSPACE" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Load inspiration accounts from the database
+        id: accounts
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          OUT=$(node "$GITHUB_WORKSPACE/scripts/inspiration.mjs" accounts)
+          echo "instagram=$(sed -E 's/^instagram=([^;]*);.*/\1/' <<< "$OUT")" >> "$GITHUB_OUTPUT"
+          echo "tiktok=$(sed -E 's/.*;tiktok=(.*)$/\1/' <<< "$OUT")" >> "$GITHUB_OUTPUT"
 
       - name: Install Higgsfield CLI + restore its login from Supabase
         env:
@@ -121,29 +176,33 @@ jobs:
 
       - name: Scout — discover recent posts from Ivy's inspiration accounts
         id: scout
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          IG_ACCOUNTS: ${{ steps.accounts.outputs.instagram }}
+          TT_ACCOUNTS: ${{ steps.accounts.outputs.tiktok }}
         run: |
           set -e
           OUT=$(python -m content_scout.cli run \
             --niche "ivy vale coastal wellness" \
             --platforms instagram,tiktok \
-            --instagram-accounts "nika_yammys,milena_milenko,sophiebatzloff,ellarayblond" \
-            --tiktok-accounts "millane,chiaraking,sydneyschiffer,ell_turner" \
+            --instagram-accounts "${IG_ACCOUNTS:-nika_yammys,milena_milenko,sophiebatzloff,ellarayblond}" \
+            --tiktok-accounts "${TT_ACCOUNTS:-millane,chiaraking,sydneyschiffer,ell_turner}" \
             --since-days 14 \
-            --per-platform-limit 36)
+            --per-platform-limit 12)
           echo "$OUT"
           RUN_ID=$(echo "$OUT" | grep -oE "Run '[^']+'" | head -1 | sed "s/Run '//;s/'//")
           if [ -z "$RUN_ID" ]; then echo "Could not parse run id from scout output" >&2; exit 1; fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           VIDEO_LINE=$(echo "$OUT" | grep -oE "[0-9]+ video\(s\) selected" | head -1)
           echo "video_line=${VIDEO_LINE:-videos selected (count unavailable)}" >> "$GITHUB_OUTPUT"
+          SCAN_ERRORS=$(echo "$OUT" | grep -E "discovery failed" | head -2 | sed -E 's/.*discovery failed: //' | cut -c1-140 | tr '\n' '|')
+          echo "scan_errors=$SCAN_ERRORS" >> "$GITHUB_OUTPUT"
 
       - name: Inspire — study the pasted link and plan content from it
         id: inspire
-        if: inputs.inspiration_url != ''
+        if: inputs.inspiration_url != '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
@@ -152,9 +211,11 @@ jobs:
           IN_URL: ${{ inputs.inspiration_url }}
           IN_KIND: ${{ inputs.inspiration_kind }}
           IN_NOTE: ${{ inputs.inspiration_note }}
+          IN_ANALYZE: ${{ inputs.analyze_only }}
         run: |
           set +e
-          OUT=$(python -m content_scout.cli inspire --url "$IN_URL" --kind "$IN_KIND" --note "$IN_NOTE" \
+          ANALYZE_FLAG=""; [ "$IN_ANALYZE" = "true" ] && ANALYZE_FLAG="--analyze-only"
+          OUT=$(python -m content_scout.cli inspire --url "$IN_URL" --kind "$IN_KIND" --note "$IN_NOTE" $ANALYZE_FLAG \
                   --persona-dir "../../docs/personas/Ivy Vale" 2>inspire.err)
           CODE=$?
           echo "$OUT"; cat inspire.err >&2
@@ -174,20 +235,47 @@ jobs:
 
       - name: Resolve run id
         id: run
-        run: echo "run_id=${{ steps.scout.outputs.run_id || steps.inspire.outputs.run_id }}" >> "$GITHUB_OUTPUT"
+        run: echo "run_id=${{ steps.scout.outputs.run_id || steps.inspire.outputs.run_id || inputs.resume_run_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the approved plan
+        if: inputs.resume_run_id != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          mkdir -p "data/runs/${{ inputs.resume_run_id }}"
+          node "$GITHUB_WORKSPACE/scripts/content-item.mjs" export-plan --run-id "${{ inputs.resume_run_id }}" --out "data/runs/${{ inputs.resume_run_id }}/content_plan.json"
+
+      - name: Decide whether this run produces or waits for plan approval
+        id: mode
+        env:
+          IN_ANALYZE: ${{ inputs.analyze_only }}
+          IN_PLAN_APPROVAL: ${{ inputs.plan_approval }}
+          IN_RESUME: ${{ inputs.resume_run_id }}
+        run: |
+          PRODUCE=false
+          if [ "$IN_ANALYZE" != "true" ] && { [ -n "$IN_RESUME" ] || [ "$IN_PLAN_APPROVAL" = "false" ]; }; then PRODUCE=true; fi
+          echo "produce=$PRODUCE" >> "$GITHUB_OUTPUT"
 
       - name: Notify Telegram — Scout findings
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           VIDEO_LINE: ${{ steps.scout.outputs.video_line }}
+          SCAN_ERRORS: ${{ steps.scout.outputs.scan_errors }}
         run: |
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
           N=$(grep -oE '^[0-9]+' <<< "$VIDEO_LINE" || true)
-          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🔍 <b>Scout — סריקה יומית</b>"$'\n'"• נסרקו 8 חשבונות (4 אינסטגרם, 4 טיקטוק), 14 הימים האחרונים"$'\n'"• נבחרו ${N:-?} סרטונים להשראה"
+          MSG="🔍 <b>Scout — סריקה יומית</b>"$'\n'"• נסרקו החשבונות שברשימה, 14 הימים האחרונים"$'\n'"• נבחרו ${N:-?} סרטונים להשראה"
+          if [ -n "$SCAN_ERRORS" ]; then
+            MSG="$MSG"$'\n'"• ⚠️ חלק מהסריקה נכשל: $(esc "$SCAN_ERRORS")"
+            grep -qi "usage\|plan\|limit" <<< "$SCAN_ERRORS" && MSG="$MSG"$'\n'"• נראה שנגמר תקציב ה-Apify החודשי — צריך לשדרג או לחכות לאיפוס"
+          fi
+          [ "${N:-0}" = "0" ] && MSG="$MSG"$'\n'"• 😕 בלי סרטונים לניתוח, אין השראה מהסריקה היום"
+          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "$MSG"
 
       - name: Notify Telegram — Scout studied your link
-        if: inputs.inspiration_url != ''
+        if: inputs.inspiration_url != '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -203,14 +291,28 @@ jobs:
           DIGEST=$(python -m content_scout.cli digest-he --kind link --file "$RUN_DIR/telegram_summary.txt")
           tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🔗 $(digest_html "$DIGEST" "למדתי את הקישור")"$'\n'"<a href=\"$(esc "$IN_URL")\">לפוסט המקורי</a>"
 
+      - name: Offer to create from it (analysis-only requests)
+        if: inputs.inspiration_url != '' && inputs.analyze_only == true && inputs.resume_run_id == ''
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          IN_URL: ${{ inputs.inspiration_url }}
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          RUN_DIR="data/runs/${{ steps.run.outputs.run_id }}"
+          ID=$(node "$GITHUB_WORKSPACE/scripts/inspiration.mjs" add-candidate --url "$IN_URL" --author "$(jq -r '.author // empty' "$RUN_DIR/inspire.json")" --platform "$(jq -r '.platform // empty' "$RUN_DIR/inspire.json")")
+          KB=$(jq -nc --arg c "insp:go:$ID" --arg v "insp:vid:$ID" --arg k "insp:skip:$ID" '{inline_keyboard:[[{text:"🎨 קרוסלה בהשראתו", callback_data:$c},{text:"🎬 סרטון בהשראתו", callback_data:$v}],[{text:"⏭ לא, תודה", callback_data:$k}]]}')
+          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "❓ <b>רוצה שאיצור ממנו משהו?</b>"$'\n'"עדיין לא יצרתי כלום ולא הוצאתי קרדיטים." "$KB"
+
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m content_scout.cli analyze --run-id "${{ steps.run.outputs.run_id }}"
 
       - name: Notify Telegram — Analysis
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -224,8 +326,41 @@ jobs:
             tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🧠 <b>ניתוח</b>"$'\n'"• לא הושלם ניתוח עמוק של אף סרטון הפעם"$'\n'"• התוכן נכתב לפי הפרופיל והסגנון של Ivy"
           fi
 
+      - name: Scout — push the best fresh inspiration to Telegram
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          RUN_ID="${{ steps.run.outputs.run_id }}"
+          python -m content_scout.picks --run-id "$RUN_ID" --top 8 --out picks.json
+          NEW=$(node "$GITHUB_WORKSPACE/scripts/inspiration.mjs" new-picks --file picks.json --max 3)
+          COUNT=$(jq 'length' <<< "$NEW")
+          [ "$COUNT" -eq 0 ] && { echo "no new inspiration to push"; exit 0; }
+          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "💡 <b>Scout — $COUNT השראות חדשות</b>"$'\n'"בחרתי פוסטים שהצליחו הרבה מעל הרגיל של היוצר שלהם. לחץ על מה שמדבר אליך:"
+          for i in $(seq 0 $((COUNT - 1))); do
+            P=$(jq -c ".[$i]" <<< "$NEW")
+            ID=$(jq -r '.id' <<< "$P"); URL=$(jq -r '.url' <<< "$P"); THUMB=$(jq -r '.thumb // empty' <<< "$P")
+            HTML="<b>$(esc "$(jq -r '.title' <<< "$P")")</b> — @$(esc "$(jq -r '.author' <<< "$P")") · פי $(jq -r '.score' <<< "$P") מהרגיל"
+            while IFS= read -r b; do [ -n "$b" ] && HTML="$HTML"$'\n'"• $(esc "$b")"; done < <(jq -r '.bullets[]?' <<< "$P")
+            HTML="$HTML"$'\n'"<a href=\"$(esc "$URL")\">לפוסט המקורי</a>"
+            KB=$(jq -nc --arg g "insp:go:$ID" --arg k "insp:skip:$ID" '{inline_keyboard:[[{text:"🎨 תעשה כזה", callback_data:$g},{text:"⏭ דלג", callback_data:$k}]]}')
+            if [ -n "$THUMB" ] && [ -f "$THUMB" ]; then
+              node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_SCOUT_THREAD_ID" \
+                --media "$(jq -nc --arg p "$THUMB" --arg h "$HTML" '[{type:"photo", path:$p, captionHtml:$h}]')" --keyboard "$KB" \
+                || tg_send "$TELEGRAM_SCOUT_THREAD_ID" "$HTML" "$KB"
+            else
+              tg_send "$TELEGRAM_SCOUT_THREAD_ID" "$HTML" "$KB"
+            fi
+          done
+
       - name: Plan — turn findings into this run's day(s) of Ivy content
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_NUM_DAYS: ${{ inputs.num_days }}
@@ -241,9 +376,13 @@ jobs:
           cat "data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
 
       - name: Notify Telegram — Generator's plan
+        if: inputs.analyze_only != true && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PRODUCE: ${{ steps.mode.outputs.produce }}
         run: |
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
           PLAN_FILE="data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
@@ -263,14 +402,32 @@ jobs:
             VP=$(jq -r ".days[$i].video_prompt // empty" "$PLAN_FILE"); [ -n "$VP" ] && DETAILS="$DETAILS"$'\n'"פרומפט וידאו: $(esc "$(cut -c1-1200 <<< "$VP")")"
           done
           TEXT="$TEXT"$'\n\n'"<blockquote expandable>🔧 פרומפטים וטקסטים (אנגלית)$DETAILS</blockquote>"
-          tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT"
+          if [ "$PRODUCE" = "true" ]; then
+            tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT"
+          else
+            # PLAN APPROVAL: save the plan, show it with an estimated cost, and STOP — nothing is generated (no credits)
+            # until the owner taps start (which re-runs this workflow with resume_run_id).
+            RUN_ID="${{ steps.run.outputs.run_id }}"
+            node "$GITHUB_WORKSPACE/scripts/content-item.mjs" plan --run-id "$RUN_ID" --run-dir "data/runs/$RUN_ID"
+            COST=0
+            for i in $(seq 0 $((COUNT - 1))); do
+              VD=$(jq -r ".days[$i].video_duration_s // empty" "$PLAN_FILE")
+              NS=$(jq -r ".days[$i].carousel_prompts | length // 0" "$PLAN_FILE")
+              if [ -n "$VD" ]; then COST=$((COST + VD + 4)); elif [ "$NS" -gt 1 ]; then COST=$((COST + NS * 2 + 2 + 2)); else COST=$((COST + 4 + 2)); fi
+            done
+            TEXT="$TEXT"$'\n\n'"• 💳 עלות משוערת: כ-$COST קרדיטים"$'\n'"• 🛑 עדיין לא נוצר כלום — לא הוצאתי קרדיטים"$'\n\n'"👇 להתחיל בייצור?"
+            KB=$(jq -nc --arg g "plan:go:$RUN_ID" --arg e "plan:edit:$RUN_ID" --arg n "plan:no:$RUN_ID" '{inline_keyboard:[[{text:"✅ התחל ייצור", callback_data:$g}],[{text:"✏️ שנה תוכנית", callback_data:$e},{text:"🗑 בטל", callback_data:$n}]]}')
+            tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT" "$KB"
+          fi
 
       - name: Generate each day's image/video and queue Buffer drafts
+        if: steps.mode.outputs.produce == 'true'
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           set -e
           RUN_DIR="data/runs/${{ steps.run.outputs.run_id }}"
@@ -278,6 +435,15 @@ jobs:
           COUNT=$(jq '.days | length' "$PLAN_FILE")
           echo "Generating $COUNT day(s) of content..."
           echo '[]' > "$RUN_DIR/media.json"
+
+          # Credits guard: report the balance in the Dispatch message and stop before spending the last ones.
+          CREDITS=$(higgsfield account status 2>/dev/null | grep -oE '[0-9]+(\.[0-9]+)? credits' | grep -oE '^[0-9.]+' || true)
+          echo "${CREDITS:-?}" > "$RUN_DIR/credits.txt"
+          if [ -n "$CREDITS" ] && awk "BEGIN{exit !($CREDITS < 12)}"; then
+            source "$GITHUB_WORKSPACE/scripts/tg.sh"
+            tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "⚠️ <b>נגמרים הקרדיטים</b>"$'\n'"• נשארו $CREDITS קרדיטים בלבד — עצרתי כדי לא לייצר חצי תוכן"$'\n'"• הם מתאפסים ב-13 לחודש"
+            exit 1
+          fi
 
           # Higgsfield answers a transient 5xx now and then (a 503 killed a whole run on 2026-10-03):
           # retry those up to 3 times; any other error fails immediately. Prints only the result URL.
@@ -289,6 +455,21 @@ jobs:
               echo "higgsfield 5xx, retrying ($n/3)..." >&2; sleep 20
             done
             tail -n 1 <<< "$out"
+          }
+
+          # gen_image <prompt> <aspect>: one reference-locked nano_banana_pro image, checked against Ivy's reference
+          # (same person, no text, plausible anatomy, within platform limits) and regenerated ONCE if it fails.
+          gen_image() {
+            local prompt="$1" aspect="$2" attempt=1 url review
+            while true; do
+              url=$(hf_gen nano_banana_pro --prompt "$prompt" "${REF_FLAGS[@]}" --aspect_ratio "$aspect" --resolution 2k --wait --wait-timeout 5m)
+              if curl -sSfL -o "$RUN_DIR/qa.png" "$url"; then
+                review=$(python -m content_scout.image_review --image "$RUN_DIR/qa.png" --reference "${REFS[0]}" 2>/dev/null || echo '{"ok":true}')
+                echo "image QA (attempt $attempt): $review" >&2
+                if [ "$(jq -r '.ok' <<< "$review")" != "true" ] && [ "$attempt" -lt 2 ]; then attempt=$((attempt + 1)); continue; fi
+              fi
+              echo "$url"; return 0
+            done
           }
 
 
@@ -343,19 +524,32 @@ jobs:
             if [ -n "$VIDEO_PROMPT" ]; then
               # VIDEO DAY (spec §2/§9.2): Stage A = 9:16 anchor still, Stage B = Seedance 2.0 Mini
               # image-to-video with the anchor as @image_1 and the character sheet as @image_2.
-              ANCHOR_URL=$(hf_gen nano_banana_pro \
-                --prompt "$PROMPT" "${REF_FLAGS[@]}" \
-                --aspect_ratio 9:16 --resolution 2k \
-                --wait --wait-timeout 5m)
-              echo "Day $i anchor image: $ANCHOR_URL"
-              curl -sSfL -o "$RUN_DIR/anchor.png" "$ANCHOR_URL"
-              VIDEO_URL=$(hf_gen seedance_2_0_mini \
-                --prompt "$VIDEO_PROMPT" \
-                --image-references "$RUN_DIR/anchor.png" \
-                --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
-                --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=false \
-                --wait --wait-timeout 20m)
-              echo "Day $i video: $VIDEO_URL"
+              # Every clip goes through a vision QA pass (same outfit/place, no burned-in text,
+              # modest, face visible) and is regenerated once if it fails — see video_review.py.
+              WARDROBE=$(jq -r ".days[$i].wardrobe // empty" "$PLAN_FILE")
+              ATTEMPT=1; QA_ISSUES=""
+              while true; do
+                ANCHOR_URL=$(hf_gen nano_banana_pro \
+                  --prompt "$PROMPT" "${REF_FLAGS[@]}" \
+                  --aspect_ratio 9:16 --resolution 2k \
+                  --wait --wait-timeout 5m)
+                echo "Day $i anchor image (attempt $ATTEMPT): $ANCHOR_URL"
+                curl -sSfL -o "$RUN_DIR/anchor.png" "$ANCHOR_URL"
+                VIDEO_URL=$(hf_gen seedance_2_0_mini \
+                  --prompt "$VIDEO_PROMPT" \
+                  --image-references "$RUN_DIR/anchor.png" \
+                  --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
+                  --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=true \
+                  --wait --wait-timeout 20m)
+                echo "Day $i video (attempt $ATTEMPT): $VIDEO_URL"
+                curl -sSfL -o "$RUN_DIR/video.mp4" "$VIDEO_URL"
+                REVIEW=$(python -m content_scout.cli review-video --video "$RUN_DIR/video.mp4" --wardrobe "$WARDROBE")
+                echo "QA verdict: $REVIEW"
+                if [ "$(jq -r '.ok' <<< "$REVIEW")" = "true" ]; then QA_ISSUES=""; break; fi
+                QA_ISSUES=$(jq -r '.issues_he | join("; ")' <<< "$REVIEW")
+                if [ "$ATTEMPT" -ge 2 ]; then echo "QA still failing after $ATTEMPT attempts — continuing with a warning"; break; fi
+                ATTEMPT=$((ATTEMPT + 1)); echo "QA failed ($QA_ISSUES) — regenerating"
+              done
 
               node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_GENERATOR_THREAD_ID" \
                 --media "$(jq -nc --arg a "$ANCHOR_URL" --arg v "$VIDEO_URL" --arg n "יום $((i + 1))" \
@@ -367,8 +561,8 @@ jobs:
               node create-draft.mjs --channel "$BUFFER_CHANNEL_TIKTOK" --video "$VIDEO_URL" --text "$TT_TEXT" --platform tiktok --influencer ivy-vale --run-id "$RUN_ID" --scheduled-for "$SLOT_A" 2>&1 | tee -a "../content-scout/$DISPATCH_LOG"
               popd > /dev/null
 
-              jq --arg v "$VIDEO_URL" --arg a "$ANCHOR_URL" --arg sa "$SLOT_A" --arg c "$CAPTION" \
-                '. + [{kind:"video", video:$v, image:$a, slot_a:$sa, caption:$c}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
+              jq --arg v "$VIDEO_URL" --arg a "$ANCHOR_URL" --arg sa "$SLOT_A" --arg c "$CAPTION" --arg q "$QA_ISSUES" \
+                '. + [{kind:"video", video:$v, image:$a, slot_a:$sa, caption:$c, qa_issues:$q}]' "$RUN_DIR/media.json" > "$RUN_DIR/media.tmp" && mv "$RUN_DIR/media.tmp" "$RUN_DIR/media.json"
               continue
             fi
 
@@ -378,19 +572,13 @@ jobs:
               # CAROUSEL DAY: one 4:5 image per slide, same refs, same day/outfit/location.
               for s in $(seq 0 $((NSLIDES - 1))); do
                 SLIDE_PROMPT=$(jq -r ".days[$i].carousel_prompts[$s]" "$PLAN_FILE")
-                U=$(hf_gen nano_banana_pro --prompt "$SLIDE_PROMPT" "${REF_FLAGS[@]}" \
-                      --aspect_ratio 4:5 --resolution 2k --wait --wait-timeout 5m)
+                U=$(gen_image "$SLIDE_PROMPT" 4:5)
                 echo "Day $i slide $((s + 1)): $U"
                 SLIDE_URLS+=("$U")
               done
               IMAGE_URL="${SLIDE_URLS[0]}"
             else
-              IMAGE_URL=$(hf_gen nano_banana_pro \
-                --prompt "$PROMPT" \
-                "${REF_FLAGS[@]}" \
-                --aspect_ratio 4:5 \
-                --resolution 2k \
-                --wait --wait-timeout 5m)
+              IMAGE_URL=$(gen_image "$PROMPT" 4:5)
               echo "Day $i image: $IMAGE_URL"
             fi
 
@@ -398,12 +586,7 @@ jobs:
             # feed image, not a crop of it (see persona_content.py's story_prompt guidance).
             STORY_IMAGE_URL=""
             if [ -n "$STORY_PROMPT" ]; then
-              STORY_IMAGE_URL=$(hf_gen nano_banana_pro \
-                --prompt "$STORY_PROMPT" \
-                "${REF_FLAGS[@]}" \
-                --aspect_ratio 9:16 \
-                --resolution 2k \
-                --wait --wait-timeout 5m)
+              STORY_IMAGE_URL=$(gen_image "$STORY_PROMPT" 9:16)
               echo "Day $i story image: $STORY_IMAGE_URL"
             fi
 
@@ -465,8 +648,16 @@ jobs:
             fi
           done
 
+      - name: Record the content item (shared record every agent reads)
+        if: always() && steps.run.outputs.run_id != '' && steps.mode.outputs.produce == 'true'
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node "$GITHUB_WORKSPACE/scripts/content-item.mjs" upsert --run-id "${{ steps.run.outputs.run_id }}" --run-dir "data/runs/${{ steps.run.outputs.run_id }}"
+
       - name: Notify Telegram — Dispatcher confirmation
-        if: always() && steps.run.outputs.run_id != ''
+        if: always() && steps.run.outputs.run_id != '' && steps.mode.outputs.produce == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
@@ -499,9 +690,19 @@ jobs:
               HTML="$HTML"$'\n'"• סטורי תזכורת: $(he_slot "$SB")"
             fi
           fi
+          if [ "$KIND" = "video" ]; then
+            QA=$(jq -r '.[0].qa_issues // ""' "$RUN_DIR/media.json")
+            if [ -n "$QA" ]; then HTML="$HTML"$'\n'"• ⚠️ בדיקת איכות: $(esc "$QA") — כדאי לבקש גרסה חדשה"; else HTML="$HTML"$'\n'"• ✅ בדיקת איכות אוטומטית עברה"; fi
+          fi
           [ "$ERRORS" != "0" ] && HTML="$HTML"$'\n'"• ⚠️ $ERRORS אזהרות/שגיאות — כדאי לבדוק את הלוג"
-          HTML="$HTML"$'\n\n'"👇 אשר כדי להכניס לתור. 15 דקות לפני כל פרסום תקבל את התוכן ותאשר שוב — בלי זה שום דבר לא יעלה."
-          KEYBOARD=$(jq -nc --arg d "approve_ivy:$RUN_ID" --arg x "del:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר לתור", callback_data:$d}],[{text:"🗑 מחק", callback_data:$x}]]}')
+          CR=$(cat "$RUN_DIR/credits.txt" 2>/dev/null || echo "?")
+          if [ "$CR" != "?" ]; then
+            DAYS_LEFT=$(( ($(date -u -d "$(date -u +%Y-%m)-13" +%s) - $(date -u +%s)) / 86400 ))
+            [ "$DAYS_LEFT" -lt 0 ] && DAYS_LEFT=$(( ($(date -u -d "$(date -u -d 'next month' +%Y-%m)-13" +%s) - $(date -u +%s)) / 86400 ))
+            HTML="$HTML"$'\n'"• 💳 יתרת קרדיטים: $CR (מתאפסים ב-13 לחודש, בעוד $DAYS_LEFT ימים)"
+          fi
+          HTML="$HTML"$'\n\n'"👇 תור = תזכורת 15 דקות לפני ואתה לוחץ. אוטומטי = יעלה בלי לחיצה (תקבל עדכון עם אפשרות לבטל). ✏️ לשינוי, 🗑 למחיקה."
+          KEYBOARD=$(jq -nc --arg a "approve_ivy:$RUN_ID" --arg b "approve_auto:$RUN_ID" --arg r "rev:$RUN_ID" --arg x "del:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר לתור (תזכורת לפני)", callback_data:$a}],[{text:"🌙 אשר ופרסם אוטומטית", callback_data:$b}],[{text:"✏️ שינוי", callback_data:$r},{text:"🗑 מחק", callback_data:$x}]]}')
 
           SENT=false
           if [ "$MEDIA_COUNT" -eq 1 ] && [ "$KIND" = "carousel" ]; then

@@ -150,7 +150,11 @@ async function main() {
     }
     instagramMeta = { ...instagramMeta, stickerFields }
   }
-  const metadata = platform === 'instagram' ? { instagram: instagramMeta } : undefined
+  // AI disclosure (owner approved 2026-10-03): Instagram posts always carry the AI label; for TikTok
+  // Buffer only supports the flag on video posts.
+  const metadata = platform === 'instagram'
+    ? { instagram: { ...instagramMeta, isAiGenerated: true } }
+    : (platform === 'tiktok' && video ? { tiktok: { isAiGenerated: true } } : undefined)
 
   const variables = {
     input: {

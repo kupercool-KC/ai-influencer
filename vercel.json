@@ -1,7 +1,17 @@
 {
   "rewrites": [
-    { "source": "/api/hf/(.*)", "destination": "/api/hfproxy?__hfpath=$1" },
-    { "source": "/((?!api/|src/|@vite/|@react-refresh|node_modules/|.*\\.[a-zA-Z0-9]+$).*)", "destination": "/index.html" }
-  ]
+    {
+      "source": "/api/hf/(.*)",
+      "destination": "/api/hfproxy?__hfpath=$1"
+    },
+    {
+      "source": "/((?!api/|src/|@vite/|@react-refresh|node_modules/|.*\\.[a-zA-Z0-9]+$).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "api/telegram/webhook.js": {
+      "maxDuration": 60
+    }
+  }
 }
-

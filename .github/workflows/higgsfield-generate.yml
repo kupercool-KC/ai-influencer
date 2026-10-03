@@ -109,11 +109,15 @@ jobs:
             fi
           done
 
+          # nano_banana_pro (what Ivy's pictures use) has no --quality parameter: pass quality "none" to skip it.
+          QUAL=()
+          [ "$IN_QUALITY" != "none" ] && QUAL=(--quality "$IN_QUALITY")
+
           URL=$(higgsfield generate create "$IN_MODEL" \
             --prompt "$IN_PROMPT" \
             "${FLAGS[@]}" \
             --aspect_ratio "$IN_ASPECT_RATIO" \
-            --quality "$IN_QUALITY" \
+            "${QUAL[@]}" \
             --resolution "$IN_RESOLUTION" \
             --wait --wait-timeout 5m)
 
@@ -179,6 +183,17 @@ jobs:
             -d @/tmp/payload.json
 
           echo "Wrote $IN_IMAGE_SLOT = $GEN_URL for influencer $IN_INFLUENCER_ID (media_assets + influencers)"
+
+      - name: Send the picture to the Generator topic in Telegram
+        if: steps.gen.outputs.url != ''
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          URL: ${{ steps.gen.outputs.url }}
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null 2>&1 || true
+          node scripts/telegram-send.mjs --chat "-1004305763915" --thread "6" \
+            --media "$(jq -nc --arg u "$URL" '[{type:"photo", url:$u, caption:"🎨 התמונה שביקשת"}]')"
 
       - name: Save refreshed Higgsfield login back to Supabase
         if: always()

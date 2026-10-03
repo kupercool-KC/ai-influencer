@@ -351,12 +351,53 @@ video (Reel + TikTok video).
 ### 12.2 Standing content direction (Iddo, 2026-10-03)
 
 Encoded in `persona_content.py` and applied to every plan (image, carousel, video):
-- **Instagram**: one sentence max, 2-4 hashtags; posts of 1-5 related photos preferred (carousel = default format).
+- **Instagram**: one sentence max, 2-4 hashtags; carousel of 2-3 related photos is the standard format (a single photo is rarer/special, ~1 day in 5-6). Every IG post (and TikTok video) carries the AI-generated label.
 - **TikTok**: its own long, natural, unfiltered caption (many sentences, thinking-out-loud) with 10-20 hashtags
   (`tiktok_caption` / `tiktok_hashtags` in the plan).
 - **Season**: wardrobe/light/water follow the real current Byron Bay season (`byron_season_note`).
 - **Direction**: more revealing/provocative yoga content (swimwear, low-cut sets, sensual but natural). Hard limits:
   adult only, no nudity, nothing explicit (platform enforcement + generator filters).
+
+### 12.3 Post by message (added 2026-10-03)
+
+The owner can post without the pipeline: send photo(s) / a video (or an album) with a caption in the Dispatch topic
+(or anywhere with a word like פרסם/תעלה). Files are copied to the public `post-media` storage bucket
+(Telegram URLs contain the bot token), Buffer drafts are created, and: **"עכשיו" in the caption publishes in ~2 min**
+(the explicit instruction is the approval); otherwise the post is queued for the next 21:00 UTC slot with the usual
+15-minutes-before prompt. Caption words choose the platform (אינסטגרם / טיקטוק, both by default) and "סטורי".
+Photos → IG post/carousel (up to 10) + TikTok photo post; video → IG Reel + TikTok video; AI label on all.
+Code: `lib/manualPost.js`, handler in `api/telegram/webhook.js`.
+
+### 12.4 Phase 2: one shared record, tweaks, pushes (added 2026-10-03)
+
+- **Shared content item** (`content_items`, one per run_id): source link, plan (prompts + captions), pictures, status
+  (planned → in_review → approved → scheduled → published/failed/deleted) and the owner's notes. Every Telegram button
+  and agent tool carries the run_id, so Scout → Generator → Dispatch hand work to each other by that id.
+- **Dispatch approval keyboard**: ✅ queue (asks again 15 min before) · 🌙 approve + publish automatically (scheduled in
+  Buffer at the 15-minute mark, with 🛑 cancel / ⏭ postpone) · ✏️ tweak · 🗑 delete. The cron also reports what actually
+  happened to released posts (posted / failed) and sends a 07:00 (Israel) summary; a failing cron alerts once an hour.
+- **Tweaks** (`ivy-revise.yml`, `content_scout.revise`, tool `revise_content`): captions edit instantly; "slide 2 with
+  more sun" re-plans and regenerates ONLY that picture (~2 credits), swaps it into every draft and re-sends the preview.
+- **Scout pushes**: each scan sends the 3 best new posts — ranked by how far they beat their OWN creator's usual — to the
+  Scout topic with [🎨 do this / ⏭ skip]; watched accounts live in `inspiration_accounts` (tools add/remove/list);
+  `inspiration_candidates` stops repeats.
+- **Owner preferences** (`owner_preferences`, tools set/list/delete_preference): "from now on ..." is stored once and
+  injected into every agent and every plan prompt.
+- **Quality/cost**: every generated still is checked against Ivy's reference (same person, no text, anatomy, limits) and
+  regenerated once on failure; the Dispatch message shows the credit balance and days to renewal; generation stops below 12.
+
+### 12.5 Phase 2b (added 2026-10-03)
+
+- **Plan approval before production**: a run stops after planning, shows the plan with an estimated credit cost and
+  [✅ start production / ✏️ change plan / 🗑 cancel]; nothing is generated until the tap (the same workflow re-runs with
+  `resume_run_id` and produces the stored plan). Plan edits go through the `revise_plan` tool, which re-sends the plan.
+- **Two candidates** for a picture (`variants: 2`): both are shown, [option 1 / option 2 / keep original] swaps the pick
+  into every draft. **`/generate`** now uses nano_banana_pro with Ivy's three identity references and sends the picture
+  to the Generator topic. Videos are generated with natural ambient sound (no music, no voices) at the same credit price;
+  platform music for Reels/TikTok cannot be set through the API (only Instagram Stories, which have it).
+- **Learning**: `post_metrics` is refreshed daily (08:00 Israel) from Buffer, a plain-statistics digest goes to Scout on
+  Sundays, and plans receive a "what worked for Ivy" block once ≥3 posts have views. Daily generation can be paused with
+  the `pause_daily_generation` preference (only the scheduled run honors it).
 
 ## 13. Open items
 

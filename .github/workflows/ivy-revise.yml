@@ -1,0 +1,149 @@
+name: Ivy revise one picture
+
+# "Twiking": the owner asks (in Telegram, via the Dispatch ✏️ button or the Generator) for a change to ONE
+# picture of an existing content item — e.g. "slide 2 with more sun". Only that picture is re-planned and
+# regenerated (~2 credits), swapped into the Buffer drafts, and a fresh preview with the approval buttons goes to
+# the Dispatch topic. See api/telegram/webhook.js (revise_content tool) and scripts/content-item.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "The content item's run_id"
+        required: true
+      instruction:
+        description: "What to change, in the owner's words"
+        required: true
+      variants:
+        description: "1 = replace the picture; 2 = generate two candidates and let the owner pick"
+        default: "1"
+        required: false
+
+run-name: "Ivy revise: ${{ inputs.run_id }}"
+
+# Shares the Higgsfield login with the other pipeline workflows.
+concurrency:
+  group: higgsfield-session
+  cancel-in-progress: false
+
+env:
+  HIGGSFIELD_WORKSPACE_ID: "464e34d3-f7ad-4da0-a24a-c00a94910a9b"
+  IVY_REFERENCES: "../../docs/personas/Ivy Vale/soul-training/01-front-smile.jpg,../../docs/personas/Ivy Vale/soul-training/05-threequarter-right-golden.jpg,../../docs/personas/Ivy Vale/soul-training/04-profile-overcast.jpg"
+  TELEGRAM_IVY_CHAT_ID: "-1004305763915"
+  TELEGRAM_SCOUT_THREAD_ID: "3"
+  TELEGRAM_GENERATOR_THREAD_ID: "6"
+  TELEGRAM_DISPATCH_THREAD_ID: "7"
+
+jobs:
+  revise:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: agents/content-scout
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install (light — no scan dependencies needed)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install requests Pillow python-dotenv
+          cd "$GITHUB_WORKSPACE" && npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Install Higgsfield CLI + restore its login from Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HIGGSFIELD_CREDENTIALS_B64: ${{ secrets.HIGGSFIELD_CREDENTIALS_B64 }}
+        run: |
+          npm i -g @higgsfield/cli
+          mkdir -p ~/.config/higgsfield
+          if ! node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" load; then
+            echo "$HIGGSFIELD_CREDENTIALS_B64" | base64 -d > ~/.config/higgsfield/credentials.json
+          fi
+          chmod 600 ~/.config/higgsfield/credentials.json
+          higgsfield workspace set "$HIGGSFIELD_WORKSPACE_ID"
+          higgsfield account status
+          node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" save
+
+      - name: Plan the change and regenerate that one picture
+        id: rev
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          IN_RUN: ${{ inputs.run_id }}
+          IN_INSTR: ${{ inputs.instruction }}
+          IN_VARIANTS: ${{ inputs.variants }}
+        run: |
+          set -e
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          source "$GITHUB_WORKSPACE/scripts/hf.sh"
+          RUN_DIR="data/revise-$GITHUB_RUN_ID"; mkdir -p "$RUN_DIR"
+          node "$GITHUB_WORKSPACE/scripts/content-item.mjs" get --run-id "$IN_RUN" > "$RUN_DIR/item.json"
+          python -m content_scout.revise --item "$RUN_DIR/item.json" --instruction "$IN_INSTR" --persona-dir "../../docs/personas/Ivy Vale" > "$RUN_DIR/rev.json"
+          if [ "$(jq -r '.unsupported // empty' "$RUN_DIR/rev.json")" = "video" ]; then
+            tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "✏️ <b>שינוי</b>"$'\n'"• תיקון נקודתי עובד לתמונות. בסרטון צריך ליצור מחדש — בקש בצ'אט 'תריץ שוב' עם הנחיה"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          SLIDE=$(jq -r '.slide' "$RUN_DIR/rev.json"); PROMPT=$(jq -r '.new_prompt' "$RUN_DIR/rev.json")
+          REF_FLAGS=(); IFS=',' read -ra REFS <<< "$IVY_REFERENCES"
+          for ref in "${REFS[@]}"; do REF_FLAGS+=(--image-references "$ref"); done
+          if [ "$IN_VARIANTS" = "2" ]; then
+            # Two candidates: nothing is swapped yet — the owner picks with the buttons (webhook pick:).
+            U1=$(gen_image "$PROMPT" 4:5); U2=$(gen_image "$PROMPT" 4:5)
+            node "$GITHUB_WORKSPACE/scripts/content-item.mjs" set-variants --run-id "$IN_RUN" --slide "$SLIDE" --urls "$U1,$U2" --prompt "$PROMPT"
+            node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_DISPATCH_THREAD_ID" \
+              --media "$(jq -nc --arg a "$U1" --arg b "$U2" '[{type:"photo", url:$a, caption:"אפשרות 1"}, {type:"photo", url:$b, caption:"אפשרות 2"}]')" || echo "warning: could not send the candidates"
+            KB=$(jq -nc --arg a "pick:$IN_RUN:1" --arg b "pick:$IN_RUN:2" --arg k "pick:$IN_RUN:0" '{inline_keyboard:[[{text:"✅ אפשרות 1", callback_data:$a},{text:"✅ אפשרות 2", callback_data:$b}],[{text:"↩️ השאר את המקורית", callback_data:$k}]]}')
+            tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "🖼 <b>שתי אפשרויות לשקופית $((SLIDE + 1))</b>"$'\n'"• $(esc "$(jq -r '.summary_he' "$RUN_DIR/rev.json")")"$'\n\n'"👇 איזו נכנסת?" "$KB"
+            echo "variants=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          NEW_URL=$(gen_image "$PROMPT" 4:5)
+          echo "new picture: $NEW_URL"
+          node "$GITHUB_WORKSPACE/scripts/content-item.mjs" apply-revision --run-id "$IN_RUN" --slide "$SLIDE" --url "$NEW_URL" --prompt "$PROMPT"
+          echo "summary=$(jq -r '.summary_he' "$RUN_DIR/rev.json")" >> "$GITHUB_OUTPUT"
+          echo "slide=$((SLIDE + 1))" >> "$GITHUB_OUTPUT"
+          node "$GITHUB_WORKSPACE/scripts/content-item.mjs" get --run-id "$IN_RUN" > "$RUN_DIR/item2.json"
+          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Fresh preview with the approval buttons in Dispatch
+        if: steps.rev.outputs.skipped != 'true' && steps.rev.outputs.variants != 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          IN_RUN: ${{ inputs.run_id }}
+          SUMMARY: ${{ steps.rev.outputs.summary }}
+          SLIDE: ${{ steps.rev.outputs.slide }}
+          RUN_DIR: ${{ steps.rev.outputs.run_dir }}
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          IMGS=$(jq -c '.media.images | map({type:"photo", url:.})' "$RUN_DIR/item2.json")
+          if [ "$(jq 'length' <<< "$IMGS")" -gt 0 ]; then
+            node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_DISPATCH_THREAD_ID" --media "$IMGS" || echo "warning: could not send the preview"
+          fi
+          KB=$(jq -nc --arg a "approve_ivy:$IN_RUN" --arg b "approve_auto:$IN_RUN" --arg r "rev:$IN_RUN" --arg x "del:$IN_RUN" '{inline_keyboard:[[{text:"✅ אשר לתור (תזכורת לפני)", callback_data:$a}],[{text:"🌙 אשר ופרסם אוטומטית", callback_data:$b}],[{text:"✏️ שינוי", callback_data:$r},{text:"🗑 מחק", callback_data:$x}]]}')
+          tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "✏️ <b>עודכן — שקופית $SLIDE</b>"$'\n'"• $(esc "$SUMMARY")"$'\n'"• הטיוטות ב-Buffer עודכנו"$'\n\n'"👇 איך ממשיכים?" "$KB"
+
+      - name: Save refreshed Higgsfield login back to Supabase
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: node "$GITHUB_WORKSPACE/scripts/higgsfield-creds.mjs" save || true
+
+      - name: Notify Telegram — revision failed
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "❌ <b>השינוי נכשל</b>"$'\n'"• לא שיניתי כלום בטיוטות"$'\n'"• <a href=\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\">לוג הריצה</a>"

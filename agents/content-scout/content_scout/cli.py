@@ -284,7 +284,7 @@ def cmd_inspire(args: argparse.Namespace) -> int:
         print(f"Error: no persona.json found under {persona_dir}", file=sys.stderr)
         return 1
     try:
-        run_id, run_dir = run_inspire(args.url, args.note, args.kind, persona_dir, settings, api_key)
+        run_id, run_dir = run_inspire(args.url, args.note, args.kind, persona_dir, settings, api_key, analyze_only=args.analyze_only)
     except InspirationError as exc:
         print(f"INSPIRE_ERROR: {exc}", file=sys.stderr)
         return 2
@@ -303,6 +303,21 @@ def cmd_digest_he(args: argparse.Namespace) -> int:
     except Exception as exc:  # noqa: BLE001 — a missing digest must not block posting
         print(f"digest-he failed: {exc}", file=sys.stderr)
         print(json.dumps({"title": "", "bullets": []}))
+    return 0
+
+
+def cmd_review_video(args: argparse.Namespace) -> int:
+    """Quality-check a generated video (same outfit/place, no on-screen text, modest, face visible).
+    Prints a JSON verdict. Never fails the pipeline: if the reviewer itself errors, it passes the
+    video through (skipped=true) rather than blocking posting on a flaky check."""
+    from content_scout.video_review import review_video
+
+    try:
+        result = review_video(os.environ["ANTHROPIC_API_KEY"], Path(args.video), args.wardrobe or "")
+    except Exception as exc:  # noqa: BLE001
+        print(f"review-video failed: {exc}", file=sys.stderr)
+        result = {"ok": True, "skipped": True, "issues_he": []}
+    print(json.dumps(result, ensure_ascii=False))
     return 0
 
 
@@ -397,12 +412,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_inspire.add_argument("--persona-dir", required=True)
     p_inspire.add_argument("--kind", choices=["image", "carousel", "video"], default="image")
     p_inspire.add_argument("--note", default=None, help="Extra direction from the owner, e.g. 'make it cozier'")
+    p_inspire.add_argument("--analyze-only", action="store_true", help="Only look at the post and summarize it; plan and generate nothing.")
     p_inspire.set_defaults(func=cmd_inspire)
 
     p_digest = sub.add_parser("digest-he", help="Short Hebrew digest (JSON) of an analysis/plan file, for Telegram.")
     p_digest.add_argument("--kind", choices=["scan", "link", "plan"], required=True)
     p_digest.add_argument("--file", required=True)
     p_digest.set_defaults(func=cmd_digest_he)
+
+    p_review = sub.add_parser("review-video", help="Quality-check a generated video; prints a JSON verdict.")
+    p_review.add_argument("--video", required=True)
+    p_review.add_argument("--wardrobe", default="")
+    p_review.set_defaults(func=cmd_review_video)
 
     p_list = sub.add_parser("list-runs", help="List all runs.")
     p_list.set_defaults(func=cmd_list_runs)

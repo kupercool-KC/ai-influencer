@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from content_scout.prefs import learning_block, preferences_block
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
 PLAN_SCHEMA_HINT = """Respond with ONLY a JSON object (no markdown fences, no commentary), \
@@ -79,7 +80,7 @@ PROMPT_RULES = """Hard rules for every "generation_prompt" AND "story_prompt" yo
 # Owner's standing content direction (Iddo, 2026-10-03) — applies to every plan, image or video.
 PLATFORM_VOICE = """Platform voice rules (standing direction from the owner):
 - INSTAGRAM: the caption is ONE short sentence at most, and only a few hashtags (2-4). A feed post is
-  best as a small carousel of related photos (see the carousel rules when they apply).
+  best as a small carousel of 2-3 related photos (see the carousel rules when they apply).
 - TIKTOK: the caption is LONG and as natural as possible — many sentences, like she is thinking out loud
   or dumping her thoughts on paper: first person, unfiltered, a bit messy, tangents and honest
   confessions, no polished/brand tone and as little self-censoring as possible. Add LOTS of hashtags
@@ -170,9 +171,11 @@ def _collect_inspiration(briefs: list[dict[str, Any]]) -> str:
 
 
 CAROUSEL_ADDON = """
-CAROUSEL DAYS (the preferred format): the feed post is a multi-photo carousel of 1-5 related photos. Each day entry must ALSO include
-"carousel_prompts": an array of 3 to 5 Higgsfield prompts (you choose how many fit the story) for
-slides 1..N (slide 1 = the "generation_prompt"). All slides are the SAME day — same outfit, same location, same light — but a
+CAROUSEL DAYS (the standard format): the feed post is a carousel of 2-3 related photos. A SINGLE photo
+(just 1 entry in carousel_prompts) is rarer and more special — use it only for an especially striking
+moment, roughly one day in five or six. Each day entry must ALSO include
+"carousel_prompts": an array of 1 to 3 Higgsfield prompts (usually 2 or 3; 1 only for the rare single-photo
+day) for slides 1..N (slide 1 = the "generation_prompt"). All slides are the SAME day — same outfit, same location, same light — but a
 different pose/angle/micro-moment each, reading as a tiny story (e.g. arrival -> the moment -> a detail
 shot -> a closing frame). They follow the same hard rules as every other prompt (identity opener, scene
 only, 4:5 vertical). "caption" should work for the whole set. Keep the Story fields as described above."""
@@ -214,6 +217,10 @@ post, and vary each day from the others.
 
 {content_direction()}
 
+{preferences_block()}
+
+{learning_block()}
+
 {AUTHENTICITY_GUIDANCE}
 
 {STORIES_GUIDANCE}
@@ -228,9 +235,9 @@ post, and vary each day from the others.
     if kind == "carousel":
         for d in days:
             slides = d.get("carousel_prompts") or []
-            if len(slides) < 2:
+            if not slides:
                 raise ValueError("Carousel plan came back without carousel_prompts")
-            d["carousel_prompts"] = slides[:5]
+            d["carousel_prompts"] = slides[:3]
     return days
 
 

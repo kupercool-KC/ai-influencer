@@ -145,7 +145,8 @@ def _summary_text(url: str, raw: RawVideo, media_kind: str, analysis: dict[str, 
 
 
 def run_inspire(
-    url: str, note: str | None, kind: str, persona_dir: Path, settings: Settings, api_key: str
+    url: str, note: str | None, kind: str, persona_dir: Path, settings: Settings, api_key: str,
+    analyze_only: bool = False,
 ) -> tuple[str, Path]:
     """Returns (run_id, run_dir). Raises InspirationError for user-facing failures."""
     url = _resolve_short_link(url.strip())
@@ -173,6 +174,12 @@ def run_inspire(
     storage.write_manifest(paths, {"run_id": run_id, "kind": "inspire", "url": url, "note": note, "media_kind": media_kind})
 
     (paths.run_dir / "telegram_summary.txt").write_text(_summary_text(url, raw, media_kind, analysis), encoding="utf-8")
+    (paths.run_dir / "inspire.json").write_text(
+        json.dumps({"url": url, "platform": platform, "author": raw.author_handle, "media_kind": media_kind, "kind": kind, "analyze_only": analyze_only}),
+        encoding="utf-8",
+    )
+    if analyze_only:
+        return run_id, paths.run_dir  # the owner only asked what is in the post — nothing is planned or generated
 
     direction = (
         f"Make something genuinely INSPIRED by this one post ({url}): keep the mechanic and vibe that made it work, "
@@ -185,8 +192,4 @@ def run_inspire(
     else:
         days = generate_daily_plan([brief], persona_dir, 1, api_key, extra_direction=direction, kind=kind)
     write_content_plan(paths.run_dir, days)
-    (paths.run_dir / "inspire.json").write_text(
-        json.dumps({"url": url, "platform": platform, "author": raw.author_handle, "media_kind": media_kind, "kind": kind}),
-        encoding="utf-8",
-    )
     return run_id, paths.run_dir
