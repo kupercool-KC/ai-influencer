@@ -43,8 +43,13 @@ on:
         description: "With inspiration_url: extra direction, e.g. 'cozier, at sunset'"
         default: ""
         required: false
+      analyze_only:
+        description: "With inspiration_url: only look at the post and report what it is — plan and generate nothing"
+        type: boolean
+        default: false
+        required: false
 
-run-name: "${{ inputs.inspiration_url != '' && format('Ivy from link ({0}): {1}', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
+run-name: "${{ inputs.inspiration_url != '' && format('Ivy {0} ({1}): {2}', inputs.analyze_only && 'analyzes link' || 'from link', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
 
 # Two runs refreshing the same Higgsfield session at once would invalidate each other's token.
 concurrency:
@@ -150,13 +155,15 @@ jobs:
             --instagram-accounts "${IG_ACCOUNTS:-nika_yammys,milena_milenko,sophiebatzloff,ellarayblond}" \
             --tiktok-accounts "${TT_ACCOUNTS:-millane,chiaraking,sydneyschiffer,ell_turner}" \
             --since-days 14 \
-            --per-platform-limit 36)
+            --per-platform-limit 12)
           echo "$OUT"
           RUN_ID=$(echo "$OUT" | grep -oE "Run '[^']+'" | head -1 | sed "s/Run '//;s/'//")
           if [ -z "$RUN_ID" ]; then echo "Could not parse run id from scout output" >&2; exit 1; fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
           VIDEO_LINE=$(echo "$OUT" | grep -oE "[0-9]+ video\(s\) selected" | head -1)
           echo "video_line=${VIDEO_LINE:-videos selected (count unavailable)}" >> "$GITHUB_OUTPUT"
+          SCAN_ERRORS=$(echo "$OUT" | grep -E "discovery failed" | head -2 | sed -E 's/.*discovery failed: //' | cut -c1-140 | tr '\n' '|')
+          echo "scan_errors=$SCAN_ERRORS" >> "$GITHUB_OUTPUT"
 
       - name: Inspire — study the pasted link and plan content from it
         id: inspire
@@ -169,9 +176,11 @@ jobs:
           IN_URL: ${{ inputs.inspiration_url }}
           IN_KIND: ${{ inputs.inspiration_kind }}
           IN_NOTE: ${{ inputs.inspiration_note }}
+          IN_ANALYZE: ${{ inputs.analyze_only }}
         run: |
           set +e
-          OUT=$(python -m content_scout.cli inspire --url "$IN_URL" --kind "$IN_KIND" --note "$IN_NOTE" \
+          ANALYZE_FLAG=""; [ "$IN_ANALYZE" = "true" ] && ANALYZE_FLAG="--analyze-only"
+          OUT=$(python -m content_scout.cli inspire --url "$IN_URL" --kind "$IN_KIND" --note "$IN_NOTE" $ANALYZE_FLAG \
                   --persona-dir "../../docs/personas/Ivy Vale" 2>inspire.err)
           CODE=$?
           echo "$OUT"; cat inspire.err >&2
@@ -198,10 +207,17 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           VIDEO_LINE: ${{ steps.scout.outputs.video_line }}
+          SCAN_ERRORS: ${{ steps.scout.outputs.scan_errors }}
         run: |
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
           N=$(grep -oE '^[0-9]+' <<< "$VIDEO_LINE" || true)
-          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🔍 <b>Scout — סריקה יומית</b>"$'\n'"• נסרקו 8 חשבונות (4 אינסטגרם, 4 טיקטוק), 14 הימים האחרונים"$'\n'"• נבחרו ${N:-?} סרטונים להשראה"
+          MSG="🔍 <b>Scout — סריקה יומית</b>"$'\n'"• נסרקו החשבונות שברשימה, 14 הימים האחרונים"$'\n'"• נבחרו ${N:-?} סרטונים להשראה"
+          if [ -n "$SCAN_ERRORS" ]; then
+            MSG="$MSG"$'\n'"• ⚠️ חלק מהסריקה נכשל: $(esc "$SCAN_ERRORS")"
+            grep -qi "usage\|plan\|limit" <<< "$SCAN_ERRORS" && MSG="$MSG"$'\n'"• נראה שנגמר תקציב ה-Apify החודשי — צריך לשדרג או לחכות לאיפוס"
+          fi
+          [ "${N:-0}" = "0" ] && MSG="$MSG"$'\n'"• 😕 בלי סרטונים לניתוח, אין השראה מהסריקה היום"
+          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "$MSG"
 
       - name: Notify Telegram — Scout studied your link
         if: inputs.inspiration_url != ''
@@ -219,6 +235,20 @@ jobs:
           fi
           DIGEST=$(python -m content_scout.cli digest-he --kind link --file "$RUN_DIR/telegram_summary.txt")
           tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🔗 $(digest_html "$DIGEST" "למדתי את הקישור")"$'\n'"<a href=\"$(esc "$IN_URL")\">לפוסט המקורי</a>"
+
+      - name: Offer to create from it (analysis-only requests)
+        if: inputs.inspiration_url != '' && inputs.analyze_only == true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          IN_URL: ${{ inputs.inspiration_url }}
+        run: |
+          source "$GITHUB_WORKSPACE/scripts/tg.sh"
+          RUN_DIR="data/runs/${{ steps.run.outputs.run_id }}"
+          ID=$(node "$GITHUB_WORKSPACE/scripts/inspiration.mjs" add-candidate --url "$IN_URL" --author "$(jq -r '.author // empty' "$RUN_DIR/inspire.json")" --platform "$(jq -r '.platform // empty' "$RUN_DIR/inspire.json")")
+          KB=$(jq -nc --arg c "insp:go:$ID" --arg v "insp:vid:$ID" --arg k "insp:skip:$ID" '{inline_keyboard:[[{text:"🎨 קרוסלה בהשראתו", callback_data:$c},{text:"🎬 סרטון בהשראתו", callback_data:$v}],[{text:"⏭ לא, תודה", callback_data:$k}]]}')
+          tg_send "$TELEGRAM_SCOUT_THREAD_ID" "❓ <b>רוצה שאיצור ממנו משהו?</b>"$'\n'"עדיין לא יצרתי כלום ולא הוצאתי קרדיטים." "$KB"
 
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
         if: inputs.inspiration_url == ''
@@ -291,6 +321,7 @@ jobs:
           cat "data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
 
       - name: Notify Telegram — Generator's plan
+        if: inputs.analyze_only != true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -316,6 +347,7 @@ jobs:
           tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT"
 
       - name: Generate each day's image/video and queue Buffer drafts
+        if: inputs.analyze_only != true
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -543,7 +575,7 @@ jobs:
           done
 
       - name: Record the content item (shared record every agent reads)
-        if: always() && steps.run.outputs.run_id != ''
+        if: always() && steps.run.outputs.run_id != '' && inputs.analyze_only != true
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -551,7 +583,7 @@ jobs:
         run: node "$GITHUB_WORKSPACE/scripts/content-item.mjs" upsert --run-id "${{ steps.run.outputs.run_id }}" --run-dir "data/runs/${{ steps.run.outputs.run_id }}"
 
       - name: Notify Telegram — Dispatcher confirmation
-        if: always() && steps.run.outputs.run_id != ''
+        if: always() && steps.run.outputs.run_id != '' && inputs.analyze_only != true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |

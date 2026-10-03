@@ -284,7 +284,7 @@ def cmd_inspire(args: argparse.Namespace) -> int:
         print(f"Error: no persona.json found under {persona_dir}", file=sys.stderr)
         return 1
     try:
-        run_id, run_dir = run_inspire(args.url, args.note, args.kind, persona_dir, settings, api_key)
+        run_id, run_dir = run_inspire(args.url, args.note, args.kind, persona_dir, settings, api_key, analyze_only=args.analyze_only)
     except InspirationError as exc:
         print(f"INSPIRE_ERROR: {exc}", file=sys.stderr)
         return 2
@@ -412,6 +412,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_inspire.add_argument("--persona-dir", required=True)
     p_inspire.add_argument("--kind", choices=["image", "carousel", "video"], default="image")
     p_inspire.add_argument("--note", default=None, help="Extra direction from the owner, e.g. 'make it cozier'")
+    p_inspire.add_argument("--analyze-only", action="store_true", help="Only look at the post and summarize it; plan and generate nothing.")
     p_inspire.set_defaults(func=cmd_inspire)
 
     p_digest = sub.add_parser("digest-he", help="Short Hebrew digest (JSON) of an analysis/plan file, for Telegram.")

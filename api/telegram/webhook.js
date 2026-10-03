@@ -498,10 +498,10 @@ export default async function handler(req, res) {
           ? editMessageCaption(cbChatId, cq.message.message_id, `${(cq.message.caption || '').slice(0, 800)}\n\n${text}`, { reply_markup: { inline_keyboard: [] } })
           : editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n${text}`, { reply_markup: { inline_keyboard: [] } })
         if (!cand) { await answerCallbackQuery(cq.id, 'לא נמצא'); return res.status(200).end() }
-        if (action === 'go') {
+        if (action === 'go' || action === 'vid') {
           await answerCallbackQuery(cq.id, 'מתחיל…')
           try {
-            await startInspiration({ url: cand.url, kind: 'carousel', note: '' })
+            await startInspiration({ url: cand.url, kind: action === 'vid' ? 'video' : 'carousel', note: '' })
             await db.from('inspiration_candidates').update({ status: 'used' }).eq('id', candId)
             await body('🎨 מתחיל — התוצאה תגיע ל-Generator ול-Dispatch בעוד כמה דקות')
           } catch (e) { await body(`❌ לא הצלחתי להתחיל: ${e.message}`) }
@@ -701,16 +701,26 @@ export default async function handler(req, res) {
     // deterministically (no LLM round-trip to misread it); owner only because it spends credits.
     // In other topics the same capability is available conversationally via the create_from_link tool.
     const inspiration = parseInspirationRequest(text)
-    if (inspiration && owner && (text.startsWith('/inspire') || (await getMode(chatId, threadId)) === 'scout')) {
-      await startInspiration(inspiration)
+    const isInspireCmd = text.startsWith('/inspire')
+    if (inspiration && owner && (isInspireCmd || (await getMode(chatId, threadId)) === 'scout') && (inspiration.intent !== 'ask' || isInspireCmd)) {
+      const analyze = inspiration.intent === 'analyze'
+      await startInspiration({ ...inspiration, analyzeOnly: analyze })
       const what = inspiration.kind === 'video' ? 'סרטון קצר' : inspiration.kind === 'carousel' ? 'פוסט של כמה תמונות' : 'תמונה'
-      await sendMessage(chatId, [
-        `🔗 *קיבלתי* — לומד את הפוסט ויוצר ${what} בהשראתו`,
-        inspiration.note ? `• ההנחיה שלך: ${inspiration.note}` : null,
-        `• התוצאות יגיעו לכאן, ל-Generator ול-Dispatch (שם מאשרים)`,
-        `• זמן משוער: ${inspiration.kind === 'video' ? '10-15' : '5-10'} דקות`,
-        inspiration.kind === 'carousel' ? '• רוצה סרטון או תמונה אחת? שלח שוב את הקישור עם המילה "סרטון" / "תמונה אחת"' : null,
-      ].filter(Boolean).join('\n'), { ...threadOpts(threadId), disable_web_page_preview: true })
+      const ack = analyze
+        ? ['🔍 *מנתח את הפוסט*', '• תקבל כאן בעוד כ-3-5 דקות מה אני מזהה בו', '• לא יוצר כלום — אחרי הסיכום תבחר אם ליצור ממנו'].join('\n')
+        : [
+          `🔗 *קיבלתי* — לומד את הפוסט ויוצר ${what} בהשראתו`,
+          inspiration.note ? `• ההנחיה שלך: ${inspiration.note}` : null,
+          `• התוצאות יגיעו לכאן, ל-Generator ול-Dispatch (שם מאשרים)`,
+          `• זמן משוער: ${inspiration.kind === 'video' ? '10-15' : '5-10'} דקות`,
+          inspiration.kind === 'carousel' ? '• רוצה סרטון או תמונה אחת? שלח שוב את הקישור עם המילה "סרטון" / "תמונה אחת"' : null,
+        ].filter(Boolean).join('\n')
+      await sendMessage(chatId, ack, { ...threadOpts(threadId), disable_web_page_preview: true })
+      // The deterministic path bypasses the agent, so put this exchange into its memory — otherwise a follow-up
+      // ("wait, don't create yet") reaches an agent that never saw the link.
+      const mode0 = await getMode(chatId, threadId)
+      const hist = await getHistory(chatId, threadId, mode0)
+      await saveHistory(chatId, threadId, mode0, [...hist, { role: 'user', content: text }, { role: 'assistant', content: ack }].slice(-40))
       return res.status(200).end()
     }
     if (text.startsWith('/inspire')) {
@@ -753,7 +763,7 @@ export default async function handler(req, res) {
     // When the owner replies to one of the bot's pictures/videos ("delete this"), tell the agent
     // which message and when it was sent, so it can find the run it belongs to.
     const replied = msg.reply_to_message
-    const replyNote = replied
+    const replyNote = replied && Date.now() - replied.date * 1000 < 36 * 3600 * 1000
       ? `[מגיב להודעה שנשלחה ב-${new Date(replied.date * 1000).toISOString()}${replied.video ? ' (סרטון)' : replied.photo ? ' (תמונה)' : ''}: ${(replied.caption || replied.text || '').slice(0, 200)}]\n`
       : ''
     const rawReply = await withTyping(chatId, () => askClaude(chatId, threadId, mode, `${replyNote}${text}`, owner), threadId)
