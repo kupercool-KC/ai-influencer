@@ -37,6 +37,7 @@ import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, 
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration, startProduction } from '../../lib/telegramTools.js'
 import { runReleaseReminders } from '../../lib/releaseReminders.js'
+import { explainError } from '../../lib/explainError.js'
 import { applyPickedVariant } from '../../lib/revision.js'
 import { createManualPost, uploadToStorage, TRIGGER_RE } from '../../lib/manualPost.js'
 import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, cancelScheduledGroup, postponeScheduledGroup, heSlot } from '../../lib/releaseGate.js'
@@ -367,7 +368,7 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
         const result = await runTool(block.name, block.input || {}, { chatId, threadId })
         toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(result) })
       } catch (e) {
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${e.message}`, is_error: true })
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: `Error: ${e.message} (explain to the owner in plain Hebrew: ${explainError(e.message)})`, is_error: true })
       }
     }
     messages = [...messages, { role: 'user', content: toolResults }]
@@ -443,7 +444,7 @@ export default async function handler(req, res) {
             : '⚠️ לא נמצאו פריטים ממתינים להרצה הזו — כנראה כבר אושרה'
           await edit(fit(original, summary))
         } catch (e) {
-          await edit(fit(original, `❌ <b>האישור נכשל</b>: ${escapeHtml(e.message)}`))
+          await edit(fit(original, `❌ <b>האישור נכשל</b>: ${escapeHtml(explainError(e.message))}`))
         }
         return res.status(200).end()
       }
@@ -472,7 +473,7 @@ export default async function handler(req, res) {
                 ? `🗑 <b>נמחק</b> — ${r.deleted} מתוך ${r.total} פריטים הוסרו מ-Buffer ולא יפורסמו` + (r.failures.length ? `\n⚠️ ${r.failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
                 : '⚠️ לא נמצאו פריטים למחיקה — כבר טופל'
             } catch (e) {
-              result = `❌ <b>המחיקה נכשלה</b>: ${escapeHtml(e.message)}`
+              result = `❌ <b>המחיקה נכשלה</b>: ${escapeHtml(explainError(e.message))}`
             }
             const original = escapeHtml((isMedia ? cq.message.caption : cq.message.text) || '').slice(0, isMedia ? 700 : 3500)
             const body = `${original}\n\n${result}`
@@ -513,7 +514,7 @@ export default async function handler(req, res) {
             await close('🎨 אושר — מתחיל לייצר. התוצאה תגיע ל-Dispatch לאישור עוד כמה דקות')
           } catch (e) {
             await db.from('content_items').update({ status: 'planned' }).eq('run_id', runId)
-            await close(`❌ לא הצלחתי להתחיל: ${e.message}`)
+            await close(`❌ לא הצלחתי להתחיל: ${explainError(e.message)}`)
           }
         } else if (action === 'edit') {
           await answerCallbackQuery(cq.id, 'כתוב מה לשנות')
@@ -588,7 +589,7 @@ export default async function handler(req, res) {
             result = n ? `🗑 <b>בוטל</b> — ${n} פריטים לא יפורסמו (נשארים טיוטות ב-Buffer)` : '⚠️ אין מה לבטל — כבר טופל'
           }
         } catch (e) {
-          result = `❌ <b>הפעולה נכשלה</b>: ${escapeHtml(e.message)}`
+          result = `❌ <b>הפעולה נכשלה</b>: ${escapeHtml(explainError(e.message))}`
         }
         await editMessageText(cbChatId, cq.message.message_id, `${head}\n\n${result}`, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
         return res.status(200).end()
@@ -708,7 +709,7 @@ export default async function handler(req, res) {
           : `📥 *נשמר בתור*\n${r.lines.map(l => `• ${l}`).join('\n')}\n• מועד: ${heSlot(r.dueAt)}\n• 15 דקות לפני תקבל את התוכן ותאשר פרסום\n• רוצה מיד? כתוב "עכשיו" בכיתוב`
         await sendMessage(chatId, body + (r.now && r.failures.length && r.scheduled ? `\n⚠️ ${r.failures.slice(0, 2).join('; ')}` : ''), threadOpts(threadId))
       } catch (e) {
-        await sendMessage(chatId, `❌ *לא הצלחתי ליצור את הפוסט*\n• ${e.message}`, threadOpts(threadId))
+        await sendMessage(chatId, `❌ *לא הצלחתי ליצור את הפוסט*\n• ${explainError(e.message)}`, threadOpts(threadId))
       }
       return res.status(200).end()
     }
@@ -826,7 +827,7 @@ export default async function handler(req, res) {
     })
     return res.status(200).end()
   } catch (e) {
-    try { await sendMessage(update.message?.chat?.id || process.env.TELEGRAM_OWNER_CHAT_ID, `Error: ${e.message}`) } catch { /* best effort */ }
+    try { await sendMessage(update.message?.chat?.id || process.env.TELEGRAM_OWNER_CHAT_ID, `❌ *משהו השתבש*\n• ${explainError(e.message)}`) } catch { /* best effort */ }
     return res.status(200).end()
   }
 }
