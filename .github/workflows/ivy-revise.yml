@@ -144,6 +144,9 @@ jobs:
         if: failure()
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
-          tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "❌ <b>השינוי נכשל</b>"$'\n'"• לא שיניתי כלום בטיוטות"$'\n'"• <a href=\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\">לוג הריצה</a>"
+          source "$GITHUB_WORKSPACE/scripts/explain-failure.sh"
+          REASON=$(failure_reason_he | while IFS= read -r l; do echo "• $(esc "$l")"; done)
+          tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "❌ <b>השינוי נכשל</b>"$'\n'"$REASON"$'\n'"• לא שיניתי כלום בטיוטות"$'\n'"• <a href=\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\">לוג הריצה</a>"

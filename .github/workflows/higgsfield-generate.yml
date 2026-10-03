@@ -201,3 +201,17 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: node scripts/higgsfield-creds.mjs save || true
+
+      - name: Notify Telegram — generation failed
+        if: failure()
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TELEGRAM_IVY_CHAT_ID: "-1004305763915"
+          TELEGRAM_GENERATOR_THREAD_ID: "6"
+        run: |
+          source scripts/tg.sh
+          source scripts/explain-failure.sh
+          REASON=$(failure_reason_he | while IFS= read -r l; do echo "• $(esc "$l")"; done)
+          tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "❌ <b>היצירה נכשלה</b>"$'\n'"$REASON"$'\n'"• <a href=\"${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\">לוג הריצה</a>"
