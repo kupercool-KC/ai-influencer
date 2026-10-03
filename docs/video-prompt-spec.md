@@ -335,6 +335,29 @@ they're Buffer's own generic per-channel suggestions. **Not yet implemented** �
 one-off "first send" scheduling was done by hand against the specific Slot A/B times above,
 not through the workflow.
 
+### 12.1 Release gate (added 2026-10-03, per Iddo)
+
+Nothing is published without the owner's tap shortly before its slot. The pipeline only creates
+Buffer **drafts** + `scheduled_dispatches` rows. One tap on the Dispatch message's "אשר לתור" marks the
+run's rows `approved` (Buffer posts stay drafts). Every minute pg_cron calls
+`api/cron/release-reminders.js`, which — **15 minutes before each slot** — sends the actual
+pictures/videos to the Dispatch topic with [פרסם בזמן / דחה ליום הבא / בטל]; only "פרסם בזמן"
+schedules the post in Buffer (`lib/releaseGate.js`). No tap → it never goes out (`missed`, stays a draft).
+Buffer's free plan also caps scheduled posts at 10, so this keeps the real queue tiny.
+
+Formats: single image (+2 Stories), **carousel** (4 slides, one IG carousel + one TikTok photo post),
+video (Reel + TikTok video).
+
+### 12.2 Standing content direction (Iddo, 2026-10-03)
+
+Encoded in `persona_content.py` and applied to every plan (image, carousel, video):
+- **Instagram**: one sentence max, 2-4 hashtags; posts of 1-5 related photos preferred (carousel = default format).
+- **TikTok**: its own long, natural, unfiltered caption (many sentences, thinking-out-loud) with 10-20 hashtags
+  (`tiktok_caption` / `tiktok_hashtags` in the plan).
+- **Season**: wardrobe/light/water follow the real current Byron Bay season (`byron_season_note`).
+- **Direction**: more revealing/provocative yoga content (swimwear, low-cut sets, sensual but natural). Hard limits:
+  adult only, no nudity, nothing explicit (platform enforcement + generator filters).
+
 ## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.

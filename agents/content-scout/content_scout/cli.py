@@ -187,7 +187,17 @@ def cmd_plan(args: argparse.Namespace) -> int:
         return 1
 
     briefs = [storage.read_brief(bp) for bp in paths.iter_briefs()]
-    days = generate_daily_plan(briefs, persona_dir, args.num_days, api_key)
+    if args.kind == "video":
+        from content_scout.video_plan import generate_video_plan
+
+        analyzed = [b for b in briefs if b.get("visual_analysis", {}).get("status") == "done"]
+        analyzed.sort(key=lambda b: b.get("ranking", {}).get("composite_score", 0), reverse=True)
+        if not analyzed:
+            print("Error: no analyzed videos to base a video plan on.", file=sys.stderr)
+            return 1
+        days = [generate_video_plan(analyzed[i % len(analyzed)], persona_dir, api_key) for i in range(args.num_days)]
+    else:
+        days = generate_daily_plan(briefs, persona_dir, args.num_days, api_key, kind=args.kind)
     out_path = write_content_plan(paths.run_dir, days)
     print(f"Wrote {len(days)} day(s) of content to {out_path}")
     return 0
@@ -381,6 +391,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_plan.add_argument("--run-id", required=True)
     p_plan.add_argument("--persona-dir", required=True, help="Path to docs/personas/<Name>/")
     p_plan.add_argument("--num-days", type=int, default=1)
+    p_plan.add_argument("--kind", choices=["image", "carousel", "video"], default="image")
     p_plan.set_defaults(func=cmd_plan)
 
     p_test_video = sub.add_parser(
@@ -399,7 +410,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_inspire.add_argument("--url", required=True)
     p_inspire.add_argument("--persona-dir", required=True)
-    p_inspire.add_argument("--kind", choices=["image", "video"], default="image")
+    p_inspire.add_argument("--kind", choices=["image", "carousel", "video"], default="image")
     p_inspire.add_argument("--note", default=None, help="Extra direction from the owner, e.g. 'make it cozier'")
     p_inspire.set_defaults(func=cmd_inspire)
 

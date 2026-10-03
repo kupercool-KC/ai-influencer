@@ -18,8 +18,10 @@ exists to produce new content, not to reopen that bug.
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
@@ -29,8 +31,10 @@ with exactly this shape:
   "days": [
     {
       "generation_prompt": "the full Higgsfield generation prompt text for the FEED image (4:5)",
-      "caption": "the social caption to post alongside the feed image, in the persona's voice",
-      "hashtags": ["3-6 short hashtags, no # symbol"],
+      "caption": "the INSTAGRAM caption: ONE short sentence at most, in the persona's voice",
+      "hashtags": ["2-4 short Instagram hashtags, no # symbol"],
+      "tiktok_caption": "the TIKTOK caption — see the platform voice rules: long, natural, unfiltered",
+      "tiktok_hashtags": ["10-20 TikTok hashtags (niche + broad), no # symbol"],
       "story_prompt": "a SEPARATE Higgsfield generation prompt for a dedicated 9:16 Story image \
 — a genuinely different candid moment from the feed image (different pose/angle/micro-scene, \
 same location and outfit family is fine), shot like a quick vertical phone snap, not a \
@@ -71,6 +75,46 @@ PROMPT_RULES = """Hard rules for every "generation_prompt" AND "story_prompt" yo
   real trip (arrival/exploring/local-life beats), not a different country each day with no
   narrative. Never invent a new country for a single unrelated day.
 """
+
+# Owner's standing content direction (Iddo, 2026-10-03) — applies to every plan, image or video.
+PLATFORM_VOICE = """Platform voice rules (standing direction from the owner):
+- INSTAGRAM: the caption is ONE short sentence at most, and only a few hashtags (2-4). A feed post is
+  best as a small carousel of related photos (see the carousel rules when they apply).
+- TIKTOK: the caption is LONG and as natural as possible — many sentences, like she is thinking out loud
+  or dumping her thoughts on paper: first person, unfiltered, a bit messy, tangents and honest
+  confessions, no polished/brand tone and as little self-censoring as possible. Add LOTS of hashtags
+  (10-20)."""
+
+# What Byron Bay actually feels like through the year (Southern Hemisphere) — the images must match
+# the real season of the posting date, not a generic "tropical beach" look.
+_BYRON_SEASONS = {
+    (12, 1, 2): "SUMMER: hot and humid (28-31C), bright high sun, dramatic afternoon storm clouds, ocean ~24C, lush deep green — peak swimwear, shorts, linen, glowing sweaty-sun skin; golden early mornings.",
+    (3, 4, 5): "AUTUMN: warm and clear (23-27C), softer low light, calm blue seas, fewer crowds, dry golden grass — swimwear still natural at midday, light layers in the evening.",
+    (6, 7, 8): "WINTER: mild sunny days (19-22C) but cool mornings/evenings (8-12C), crisp clear light, humpback whales passing, ocean ~20C — knits, hoodies and layers at dawn/dusk; swimwear only for midday sun or a brave quick dip; NO hot-summer look.",
+    (9, 10, 11): "SPRING: mild to warm (20-26C), fresh cool mornings (12-15C), long sunny days with the occasional passing shower, wildflowers and fresh green, humpbacks still passing, ocean ~21C and brisk — light layers (linen shirt, cardigan) at dawn, swimwear in the midday sun, not full-summer heat.",
+}
+
+
+def byron_season_note(today: datetime | None = None) -> str:
+    d = today or datetime.now(ZoneInfo("Australia/Sydney"))
+    for months, text in _BYRON_SEASONS.items():
+        if d.month in months:
+            return f"Today is {d:%d %B %Y}. Byron Bay right now — {text} Weather, light, water, foliage and wardrobe must fit this real season."
+    return ""
+
+
+SENSUAL_DIRECTION = """Style direction from the owner: Ivy's yoga content is moving toward more revealing and provocative —
+while still reading as natural, effortless and candid, never staged or pornographic. Use: swimwear (bikinis,
+one-pieces), fitted / low-cut / cut-out yoga sets and sports bras, plenty of skin and cleavage, sun-kissed glowing
+skin, confident body-aware poses (deep stretches, backbends, kneeling/arching, hair in hand, a look back over the
+shoulder), the "caught in a moment" glance. HARD LIMITS (the platforms' rules and the image generator enforce them,
+and crossing them gets accounts removed): she is an adult woman; no nudity — nothing uncovered that a bikini would not
+cover; no see-through exposure; no explicit sexual acts or fetish content."""
+
+
+def content_direction(today: datetime | None = None) -> str:
+    return f"{PLATFORM_VOICE}\n\n{byron_season_note(today)}\n\n{SENSUAL_DIRECTION}"
+
 
 # General creative guidance (not a per-image checklist item — feedback from Iddo, 2026-09-30,
 # on seeing a too-perfect/empty magazine-style background): use judgment about when a setting
@@ -125,9 +169,18 @@ def _collect_inspiration(briefs: list[dict[str, Any]]) -> str:
     return "\n".join(lines) or "(no analyzed inspiration posts in this run — write from the persona profile alone)"
 
 
+CAROUSEL_ADDON = """
+CAROUSEL DAYS (the preferred format): the feed post is a multi-photo carousel of 1-5 related photos. Each day entry must ALSO include
+"carousel_prompts": an array of 3 to 5 Higgsfield prompts (you choose how many fit the story) for
+slides 1..N (slide 1 = the "generation_prompt"). All slides are the SAME day — same outfit, same location, same light — but a
+different pose/angle/micro-moment each, reading as a tiny story (e.g. arrival -> the moment -> a detail
+shot -> a closing frame). They follow the same hard rules as every other prompt (identity opener, scene
+only, 4:5 vertical). "caption" should work for the whole set. Keep the Story fields as described above."""
+
+
 def generate_daily_plan(
     briefs: list[dict[str, Any]], persona_dir: Path, num_days: int, api_key: str,
-    extra_direction: str | None = None,
+    extra_direction: str | None = None, kind: str = "image",
 ) -> list[dict[str, Any]]:
     """Returns a list of {generation_prompt, caption, hashtags} dicts, length num_days.
 
@@ -159,17 +212,25 @@ post, and vary each day from the others.
 
 {PROMPT_RULES}
 
+{content_direction()}
+
 {AUTHENTICITY_GUIDANCE}
 
 {STORIES_GUIDANCE}
 
-{PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}
+{PLAN_SCHEMA_HINT.replace("NUM_DAYS", str(num_days))}{CAROUSEL_ADDON if kind == "carousel" else ""}
 """
-    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=2000 * max(num_days, 1) + 800)
+    raw = _call_claude(api_key, [{"type": "text", "text": prompt}], max_tokens=(3200 if kind == "carousel" else 2000) * max(num_days, 1) + 800)
     data = json.loads(_strip_fences(raw))
     days = data["days"]
     if len(days) != num_days:
         raise ValueError(f"Expected {num_days} day(s), Claude returned {len(days)}")
+    if kind == "carousel":
+        for d in days:
+            slides = d.get("carousel_prompts") or []
+            if len(slides) < 2:
+                raise ValueError("Carousel plan came back without carousel_prompts")
+            d["carousel_prompts"] = slides[:5]
     return days
 
 

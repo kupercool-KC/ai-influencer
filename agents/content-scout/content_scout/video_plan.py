@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from content_scout.persona_content import _load_persona
+from content_scout.persona_content import _load_persona, content_direction
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
 IDENTITY_OPENER = (
@@ -75,8 +75,10 @@ toward the camera) and her whole outfit in frame. Never describe her face, skin,
   "environment": "<= 12 words: place + light source + one sensory detail (Australia unless told otherwise)",
   "beats": [{"start": 0, "end": 2, "camera": "framing + exactly ONE movement word, e.g. 'MCU, handheld'", \
 "action": "ONE action, <= 14 words, no 'and then'"}],
-  "caption": "social caption in her voice",
-  "hashtags": ["3-6 short hashtags, no # symbol"],
+  "caption": "INSTAGRAM caption: ONE short sentence at most, in her voice",
+  "hashtags": ["2-4 short Instagram hashtags, no # symbol"],
+  "tiktok_caption": "TIKTOK caption: long, natural, unfiltered, many sentences (see platform voice rules)",
+  "tiktok_hashtags": ["10-20 TikTok hashtags, no # symbol"],
   "caption_overlay": "optional short on-screen text suggestion, or null"
 }
 Rules: beats must cover 0..duration_s exactly with no gaps; the first beat ends by 2s; every beat is at
@@ -177,6 +179,9 @@ mechanic of a real source post (below) — adapting, never copying.
 === SOURCE POST (analyzed) ===
 {source}
 {direction}
+=== STANDING CONTENT DIRECTION ===
+{content_direction()}
+
 {PLAN_SCHEMA}"""
 
     feedback = ""
@@ -204,6 +209,8 @@ mechanic of a real source post (below) — adapting, never copying.
         "wardrobe": plan["wardrobe"],
         "caption": plan["caption"],
         "hashtags": plan.get("hashtags", []),
+        "tiktok_caption": plan.get("tiktok_caption", ""),
+        "tiktok_hashtags": plan.get("tiktok_hashtags", []),
         "video_prompt": prompt,
         "video_duration_s": plan["duration_s"],
         "caption_overlay": plan.get("caption_overlay"),
