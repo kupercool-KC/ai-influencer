@@ -27,15 +27,38 @@ STYLE_ANCHOR = (
     "camera sway, real-world imperfections"
 )
 
-# The spec says ~220 words; the fixed identity/negative/closing clauses alone are ~190, so the
+# The spec says ~220 words; the fixed identity/continuity/negative/closing clauses alone are ~230, so the
 # LLM-written part has only a few dozen words of room.
-MAX_PROMPT_WORDS = 260
+MAX_PROMPT_WORDS = 300
 
 MOVEMENT_WORDS = {"pan", "tilt", "dolly", "push", "pull", "track", "orbit", "zoom", "handheld", "static", "locked"}
 FACE_DESCRIPTOR_RE = re.compile(
     r"\b(blue|green|brown|hazel|grey|gray)\s+eyes\b|\bblonde\b|\bbrunette\b|\bfreckles?\b|"
     r"\bskin\s+tone\b|\bjawline\b|\bcheekbones?\b|\bcomplexion\b",
     re.IGNORECASE,
+)
+
+# Learned 2026-10-03 from a live clip: a source reel built as a "three mornings" montage made Seedance
+# stage each cut as a different day — different outfit, different room, burned-in "sunday"/"monday"
+# labels, and a first cut that looked undressed. Only the MECHANIC of a source may be reused, never
+# a multi-day / multi-outfit / multi-location structure, so the plan is validated against it here.
+MULTI_STORY_RE = re.compile(
+    r"\b(mon|tues|wednes|thurs|fri|satur|sun)day\b|\bday\s*(one|two|three|\d)\b|"
+    r"\b(two|three|four|five|several|different|multiple|many)\s+(?:\w+\s+){0,2}(mornings|days|outfits|looks|locations|places|rooms)\b|"
+    r"\bmontage\b|\bnext\s+(day|morning)\b|\bchang(e|es|ed|ing)\s+(into|outfits?|clothes)\b|"
+    r"\bgets?\s+dressed\b|\boutfit\s+change\b|\bhours?\s+later\b",
+    re.IGNORECASE,
+)
+UNDRESSED_RE = re.compile(
+    r"\b(pyjamas?|pajamas?|lingerie|underwear|nightwear|sleepwear|nightgown|bikini|topless|undress\w*|"
+    r"bare[- ]legs?|bare[- ]chested|nude)\b",
+    re.IGNORECASE,
+)
+CONTINUITY_RULES = (
+    "ONE MOMENT, ONE PLACE, ONE OUTFIT: every beat continues the same scene — same room, same clothes, "
+    "same light, same props, no time jumps. The wardrobe is full everyday clothing (top + bottoms, or a "
+    "dress), never sleepwear or anything revealing, and never changes. If the source reel jumps between "
+    "days/outfits/places, keep only its hook idea and film it as one continuous moment."
 )
 
 PLAN_SCHEMA = """Respond with ONLY a JSON object (no markdown fences, no commentary), exactly:
@@ -45,8 +68,9 @@ PLAN_SCHEMA = """Respond with ONLY a JSON object (no markdown fences, no comment
   "hook_type": "visual surprise | motion into frame | direct address | object reveal | one line",
   "concept": "one line, <= 12 words",
   "still_prompt": "scene ONLY for the vertical 9:16 first frame (pose, framing, light, setting) — \
-a quick candid phone-snap look. Never describe her face, skin, hair or eyes.",
-  "wardrobe": "<= 12 words, from her palette: sand, sage, cream, terracotta, minimal jewellery",
+a quick candid phone-snap look with her FACE clearly visible (at least head and shoulders, turned partly \
+toward the camera) and her whole outfit in frame. Never describe her face, skin, hair or eyes.",
+  "wardrobe": "<= 12 words, full everyday clothes (top + bottoms or a dress) from her palette: sand, sage, cream, terracotta, minimal jewellery",
   "props": "<= 12 words, or 'none'",
   "environment": "<= 12 words: place + light source + one sensory detail (Australia unless told otherwise)",
   "beats": [{"start": 0, "end": 2, "camera": "framing + exactly ONE movement word, e.g. 'MCU, handheld'", \
@@ -57,7 +81,8 @@ a quick candid phone-snap look. Never describe her face, skin, hair or eyes.",
 }
 Rules: beats must cover 0..duration_s exactly with no gaps; the first beat ends by 2s; every beat is at
 least 2s; at most 4 beats. Keep the MECHANIC that made the source work (its hook/pacing idea),
-rebuild everything else in Ivy's world — never reuse the source's scene, script, music or text."""
+rebuild everything else in Ivy's world — never reuse the source's scene, script, music or text.
+""" + CONTINUITY_RULES
 
 
 def validate_plan(plan: dict[str, Any]) -> list[str]:
@@ -91,6 +116,12 @@ def validate_plan(plan: dict[str, Any]) -> list[str]:
     written += " " + " ".join(str(b.get("action", "")) for b in beats)
     if FACE_DESCRIPTOR_RE.search(written):
         errs.append("face/skin/hair/eye descriptor in an LLM-written field")
+    story = written + " " + " ".join(str(plan.get(k, "")) for k in ("hook_type", "caption_overlay"))
+    if MULTI_STORY_RE.search(story):
+        errs.append("the plan jumps between days/outfits/places — film ONE continuous moment in one place, "
+                    "one outfit (no weekday names, no 'three mornings', no outfit changes)")
+    if UNDRESSED_RE.search(written):
+        errs.append("wardrobe/scene must be full everyday clothing — no sleepwear, underwear, bare-legs or revealing wording")
     return errs
 
 
@@ -114,7 +145,11 @@ def assemble_prompt(plan: dict[str, Any]) -> str:
         "Only one @image_1 in frame. Lighting warm and golden throughout, never cool. Hand gestures "
         "evolve organically — no looping. Real-time playback speed throughout — never slow motion; "
         "motion reads like a handheld phone recording, not a slowed-down cinematic clip.\n"
-        "NEGATIVE PROMPT: No music, no captions, no slow motion, no ramped/slowed playback speed.\n\n"
+        "CONTINUITY: one single moment in one place. Every cut keeps the SAME outfit exactly as WARDROBE "
+        "(fully clothed in everyday clothing the whole time), the SAME room, time of day and props. "
+        "No time jumps, day changes, outfit changes or new locations.\n"
+        "NEGATIVE PROMPT: No music, no captions, no on-screen text of any kind (no day names, labels or "
+        "watermarks), no outfit change, no scene change, no slow motion, no ramped/slowed playback speed.\n\n"
         f"ACTION:\n{action}\n"
         "End cleanly with the character holding a final pose, no talking or lip movement."
     )
@@ -162,7 +197,11 @@ mechanic of a real source post (below) — adapting, never copying.
 
     prompt = assemble_prompt(plan)
     return {
-        "generation_prompt": IDENTITY_OPENER + plan["still_prompt"],
+        "generation_prompt": (
+            IDENTITY_OPENER + plan["still_prompt"].rstrip(". ")
+            + f". She wears {plan['wardrobe'].rstrip('. ')}, fully clothed in everyday clothing; her face is clearly visible."
+        ),
+        "wardrobe": plan["wardrobe"],
         "caption": plan["caption"],
         "hashtags": plan.get("hashtags", []),
         "video_prompt": prompt,
