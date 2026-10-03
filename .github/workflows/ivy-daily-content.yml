@@ -501,7 +501,7 @@ jobs:
           fi
           [ "$ERRORS" != "0" ] && HTML="$HTML"$'\n'"• ⚠️ $ERRORS אזהרות/שגיאות — כדאי לבדוק את הלוג"
           HTML="$HTML"$'\n\n'"👇 אשר כדי להכניס לתור. 15 דקות לפני כל פרסום תקבל את התוכן ותאשר שוב — בלי זה שום דבר לא יעלה."
-          KEYBOARD=$(jq -nc --arg d "approve_ivy:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר לתור", callback_data:$d}]]}')
+          KEYBOARD=$(jq -nc --arg d "approve_ivy:$RUN_ID" --arg x "del:$RUN_ID" '{inline_keyboard:[[{text:"✅ אשר לתור", callback_data:$d}],[{text:"🗑 מחק", callback_data:$x}]]}')
 
           SENT=false
           if [ "$MEDIA_COUNT" -eq 1 ] && [ "$KIND" = "carousel" ]; then

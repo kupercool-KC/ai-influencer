@@ -33,10 +33,10 @@
 // propose_code_change, open real pull requests.
 
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
-import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
+import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
-import { approveRun, releaseGroup, postponeGroup, skipGroup, heSlot } from '../../lib/releaseGate.js'
+import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, heSlot } from '../../lib/releaseGate.js'
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
 
@@ -415,6 +415,44 @@ export default async function handler(req, res) {
         return res.status(200).end()
       }
 
+      if ((cq.data || '').startsWith('del')) {
+        // del:<run> asks to confirm, delok:<run> deletes the whole set, delno:<run> backs out.
+        const m = cq.data.match(/^(delok|delno|del):(.+)$/)
+        if (m) {
+          const [, step, runId] = m
+          const isMedia = Boolean(cq.message.photo || cq.message.video)
+          if (step === 'del') {
+            await answerCallbackQuery(cq.id, 'בטוח?')
+            await editMessageReplyMarkup(cbChatId, cq.message.message_id, { inline_keyboard: [[
+              { text: '🗑 כן, מחק הכל', callback_data: `delok:${runId}` }, { text: 'ביטול', callback_data: `delno:${runId}` },
+            ]] })
+          } else if (step === 'delno') {
+            await answerCallbackQuery(cq.id, 'בסדר')
+            await editMessageReplyMarkup(cbChatId, cq.message.message_id, { inline_keyboard: [
+              [{ text: '✅ אשר לתור', callback_data: `approve_ivy:${runId}` }],
+              [{ text: '🗑 מחק', callback_data: `del:${runId}` }],
+            ] })
+          } else {
+            await answerCallbackQuery(cq.id, 'מוחק…')
+            const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            let result
+            try {
+              const r = await deleteRun(runId)
+              result = r.total
+                ? `🗑 <b>נמחק</b> — ${r.deleted} מתוך ${r.total} פריטים הוסרו מ-Buffer ולא יפורסמו` + (r.failures.length ? `\n⚠️ ${r.failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
+                : '⚠️ לא נמצאו פריטים למחיקה — כבר טופל'
+            } catch (e) {
+              result = `❌ <b>המחיקה נכשלה</b>: ${escapeHtml(e.message)}`
+            }
+            const original = escapeHtml((isMedia ? cq.message.caption : cq.message.text) || '').slice(0, isMedia ? 700 : 3500)
+            const body = `${original}\n\n${result}`
+            if (isMedia) await editMessageCaption(cbChatId, cq.message.message_id, body, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
+            else await editMessageText(cbChatId, cq.message.message_id, body, { reply_markup: { inline_keyboard: [] }, parse_mode: 'HTML' })
+          }
+          return res.status(200).end()
+        }
+      }
+
       if ((cq.data || '').startsWith('rel:')) {
         const [, action, rowId] = cq.data.split(':')
         const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -608,7 +646,13 @@ export default async function handler(req, res) {
     // Chat mode (especially with tool use) can take a few seconds, so show
     // "typing…" for the whole wait instead of the chat looking stuck.
     const mode = await getMode(chatId, threadId)
-    const rawReply = await withTyping(chatId, () => askClaude(chatId, threadId, mode, text, owner), threadId)
+    // When the owner replies to one of the bot's pictures/videos ("delete this"), tell the agent
+    // which message and when it was sent, so it can find the run it belongs to.
+    const replied = msg.reply_to_message
+    const replyNote = replied
+      ? `[מגיב להודעה שנשלחה ב-${new Date(replied.date * 1000).toISOString()}${replied.video ? ' (סרטון)' : replied.photo ? ' (תמונה)' : ''}: ${(replied.caption || replied.text || '').slice(0, 200)}]\n`
+      : ''
+    const rawReply = await withTyping(chatId, () => askClaude(chatId, threadId, mode, `${replyNote}${text}`, owner), threadId)
     const { text: reply, options } = extractChoices(rawReply)
     await sendMessage(chatId, reply, {
       ...threadOpts(threadId),
