@@ -4,8 +4,10 @@ Then extract a 16kHz mono WAV for faster-whisper.
 """
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
@@ -16,7 +18,19 @@ class DownloadError(RuntimeError):
     pass
 
 
+def with_apify_token(url: str) -> str:
+    """Files the Apify TikTok actor saves (videos, covers) live in the run's private key-value
+    store: a plain GET returns 403, but the same URL with ?token=<APIFY_TOKEN> works."""
+    parts = urlsplit(url)
+    token = os.environ.get("APIFY_TOKEN")
+    if parts.hostname != "api.apify.com" or not token:
+        return url
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k != "token"] + [("token", token)]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), ""))
+
+
 def _download_direct(url: str, dest: Path) -> None:
+    url = with_apify_token(url)
     with requests.get(url, stream=True, timeout=60) as resp:
         resp.raise_for_status()
         dest.parent.mkdir(parents=True, exist_ok=True)

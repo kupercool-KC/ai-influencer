@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 import requests
 
 from content_scout import storage
+from content_scout.media.download import with_apify_token
 from content_scout.config import Settings
 from content_scout.models import RawVideo, ScoredVideo, new_brief
 from content_scout.persona_content import generate_daily_plan, write_content_plan
@@ -66,7 +67,7 @@ def _fetch_images(urls: list[str], frames_dir: Path) -> list[Path]:
     saved: list[Path] = []
     for i, u in enumerate(urls, start=1):
         try:
-            r = requests.get(u, timeout=30, headers={"User-Agent": "Mozilla/5.0"})
+            r = requests.get(with_apify_token(u), timeout=30, headers={"User-Agent": "Mozilla/5.0"})
             r.raise_for_status()
             dest = frames_dir / f"keyframe_{i:02d}.jpg"
             _save_image(r.content, dest)
