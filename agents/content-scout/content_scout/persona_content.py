@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from content_scout.prefs import preferences_block
+from content_scout.prefs import learning_block, preferences_block
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
 PLAN_SCHEMA_HINT = """Respond with ONLY a JSON object (no markdown fences, no commentary), \
@@ -218,6 +218,8 @@ post, and vary each day from the others.
 {content_direction()}
 
 {preferences_block()}
+
+{learning_block()}
 
 {AUTHENTICITY_GUIDANCE}
 

@@ -48,8 +48,17 @@ on:
         type: boolean
         default: false
         required: false
+      plan_approval:
+        description: "Stop after the plan and wait for the owner's tap in Telegram before spending any credits (default: yes)"
+        type: boolean
+        default: true
+        required: false
+      resume_run_id:
+        description: "Produce a plan the owner already approved (its run_id) — skips scouting and planning"
+        default: ""
+        required: false
 
-run-name: "${{ inputs.inspiration_url != '' && format('Ivy {0} ({1}): {2}', inputs.analyze_only && 'analyzes link' || 'from link', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
+run-name: "${{ inputs.resume_run_id != '' && format('Ivy produces approved plan: {0}', inputs.resume_run_id) || inputs.inspiration_url != '' && format('Ivy {0} ({1}): {2}', inputs.analyze_only && 'analyzes link' || 'from link', inputs.inspiration_kind, inputs.inspiration_url) || 'Ivy daily content pipeline' }}"
 
 # Two runs refreshing the same Higgsfield session at once would invalidate each other's token.
 concurrency:
@@ -134,7 +143,7 @@ jobs:
 
       - name: Load inspiration accounts from the database
         id: accounts
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -167,7 +176,7 @@ jobs:
 
       - name: Scout — discover recent posts from Ivy's inspiration accounts
         id: scout
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
@@ -193,7 +202,7 @@ jobs:
 
       - name: Inspire — study the pasted link and plan content from it
         id: inspire
-        if: inputs.inspiration_url != ''
+        if: inputs.inspiration_url != '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
@@ -226,10 +235,30 @@ jobs:
 
       - name: Resolve run id
         id: run
-        run: echo "run_id=${{ steps.scout.outputs.run_id || steps.inspire.outputs.run_id }}" >> "$GITHUB_OUTPUT"
+        run: echo "run_id=${{ steps.scout.outputs.run_id || steps.inspire.outputs.run_id || inputs.resume_run_id }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the approved plan
+        if: inputs.resume_run_id != ''
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          mkdir -p "data/runs/${{ inputs.resume_run_id }}"
+          node "$GITHUB_WORKSPACE/scripts/content-item.mjs" export-plan --run-id "${{ inputs.resume_run_id }}" --out "data/runs/${{ inputs.resume_run_id }}/content_plan.json"
+
+      - name: Decide whether this run produces or waits for plan approval
+        id: mode
+        env:
+          IN_ANALYZE: ${{ inputs.analyze_only }}
+          IN_PLAN_APPROVAL: ${{ inputs.plan_approval }}
+          IN_RESUME: ${{ inputs.resume_run_id }}
+        run: |
+          PRODUCE=false
+          if [ "$IN_ANALYZE" != "true" ] && { [ -n "$IN_RESUME" ] || [ "$IN_PLAN_APPROVAL" = "false" ]; }; then PRODUCE=true; fi
+          echo "produce=$PRODUCE" >> "$GITHUB_OUTPUT"
 
       - name: Notify Telegram — Scout findings
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           VIDEO_LINE: ${{ steps.scout.outputs.video_line }}
@@ -246,7 +275,7 @@ jobs:
           tg_send "$TELEGRAM_SCOUT_THREAD_ID" "$MSG"
 
       - name: Notify Telegram — Scout studied your link
-        if: inputs.inspiration_url != ''
+        if: inputs.inspiration_url != '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -263,7 +292,7 @@ jobs:
           tg_send "$TELEGRAM_SCOUT_THREAD_ID" "🔗 $(digest_html "$DIGEST" "למדתי את הקישור")"$'\n'"<a href=\"$(esc "$IN_URL")\">לפוסט המקורי</a>"
 
       - name: Offer to create from it (analysis-only requests)
-        if: inputs.inspiration_url != '' && inputs.analyze_only == true
+        if: inputs.inspiration_url != '' && inputs.analyze_only == true && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -277,13 +306,13 @@ jobs:
           tg_send "$TELEGRAM_SCOUT_THREAD_ID" "❓ <b>רוצה שאיצור ממנו משהו?</b>"$'\n'"עדיין לא יצרתי כלום ולא הוצאתי קרדיטים." "$KB"
 
       - name: Analyze — headless stage 7+10 (visual analysis + synthesis)
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python -m content_scout.cli analyze --run-id "${{ steps.run.outputs.run_id }}"
 
       - name: Notify Telegram — Analysis
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -298,7 +327,7 @@ jobs:
           fi
 
       - name: Scout — push the best fresh inspiration to Telegram
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         continue-on-error: true
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -331,7 +360,7 @@ jobs:
           done
 
       - name: Plan — turn findings into this run's day(s) of Ivy content
-        if: inputs.inspiration_url == ''
+        if: inputs.inspiration_url == '' && inputs.resume_run_id == ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           IN_NUM_DAYS: ${{ inputs.num_days }}
@@ -347,10 +376,13 @@ jobs:
           cat "data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
 
       - name: Notify Telegram — Generator's plan
-        if: inputs.analyze_only != true
+        if: inputs.analyze_only != true && inputs.resume_run_id == ''
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PRODUCE: ${{ steps.mode.outputs.produce }}
         run: |
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
           PLAN_FILE="data/runs/${{ steps.run.outputs.run_id }}/content_plan.json"
@@ -370,10 +402,26 @@ jobs:
             VP=$(jq -r ".days[$i].video_prompt // empty" "$PLAN_FILE"); [ -n "$VP" ] && DETAILS="$DETAILS"$'\n'"פרומפט וידאו: $(esc "$(cut -c1-1200 <<< "$VP")")"
           done
           TEXT="$TEXT"$'\n\n'"<blockquote expandable>🔧 פרומפטים וטקסטים (אנגלית)$DETAILS</blockquote>"
-          tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT"
+          if [ "$PRODUCE" = "true" ]; then
+            tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT"
+          else
+            # PLAN APPROVAL: save the plan, show it with an estimated cost, and STOP — nothing is generated (no credits)
+            # until the owner taps start (which re-runs this workflow with resume_run_id).
+            RUN_ID="${{ steps.run.outputs.run_id }}"
+            node "$GITHUB_WORKSPACE/scripts/content-item.mjs" plan --run-id "$RUN_ID" --run-dir "data/runs/$RUN_ID"
+            COST=0
+            for i in $(seq 0 $((COUNT - 1))); do
+              VD=$(jq -r ".days[$i].video_duration_s // empty" "$PLAN_FILE")
+              NS=$(jq -r ".days[$i].carousel_prompts | length // 0" "$PLAN_FILE")
+              if [ -n "$VD" ]; then COST=$((COST + VD + 4)); elif [ "$NS" -gt 1 ]; then COST=$((COST + NS * 2 + 2 + 2)); else COST=$((COST + 4 + 2)); fi
+            done
+            TEXT="$TEXT"$'\n\n'"• 💳 עלות משוערת: כ-$COST קרדיטים"$'\n'"• 🛑 עדיין לא נוצר כלום — לא הוצאתי קרדיטים"$'\n\n'"👇 להתחיל בייצור?"
+            KB=$(jq -nc --arg g "plan:go:$RUN_ID" --arg e "plan:edit:$RUN_ID" --arg n "plan:no:$RUN_ID" '{inline_keyboard:[[{text:"✅ התחל ייצור", callback_data:$g}],[{text:"✏️ שנה תוכנית", callback_data:$e},{text:"🗑 בטל", callback_data:$n}]]}')
+            tg_send "$TELEGRAM_GENERATOR_THREAD_ID" "$TEXT" "$KB"
+          fi
 
       - name: Generate each day's image/video and queue Buffer drafts
-        if: inputs.analyze_only != true
+        if: steps.mode.outputs.produce == 'true'
         env:
           BUFFER_API_KEY: ${{ secrets.BUFFER_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -491,7 +539,7 @@ jobs:
                   --prompt "$VIDEO_PROMPT" \
                   --image-references "$RUN_DIR/anchor.png" \
                   --image-references "../../docs/personas/Ivy Vale/production/character-sheet.jpg" \
-                  --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=false \
+                  --aspect_ratio 9:16 --duration "$VIDEO_DUR" --resolution 720p --generate_audio=true \
                   --wait --wait-timeout 20m)
                 echo "Day $i video (attempt $ATTEMPT): $VIDEO_URL"
                 curl -sSfL -o "$RUN_DIR/video.mp4" "$VIDEO_URL"
@@ -601,7 +649,7 @@ jobs:
           done
 
       - name: Record the content item (shared record every agent reads)
-        if: always() && steps.run.outputs.run_id != '' && inputs.analyze_only != true
+        if: always() && steps.run.outputs.run_id != '' && steps.mode.outputs.produce == 'true'
         continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -609,7 +657,7 @@ jobs:
         run: node "$GITHUB_WORKSPACE/scripts/content-item.mjs" upsert --run-id "${{ steps.run.outputs.run_id }}" --run-dir "data/runs/${{ steps.run.outputs.run_id }}"
 
       - name: Notify Telegram — Dispatcher confirmation
-        if: always() && steps.run.outputs.run_id != '' && inputs.analyze_only != true
+        if: always() && steps.run.outputs.run_id != '' && steps.mode.outputs.produce == 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |

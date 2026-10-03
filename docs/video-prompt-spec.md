@@ -386,6 +386,19 @@ Code: `lib/manualPost.js`, handler in `api/telegram/webhook.js`.
 - **Quality/cost**: every generated still is checked against Ivy's reference (same person, no text, anatomy, limits) and
   regenerated once on failure; the Dispatch message shows the credit balance and days to renewal; generation stops below 12.
 
+### 12.5 Phase 2b (added 2026-10-03)
+
+- **Plan approval before production**: a run stops after planning, shows the plan with an estimated credit cost and
+  [✅ start production / ✏️ change plan / 🗑 cancel]; nothing is generated until the tap (the same workflow re-runs with
+  `resume_run_id` and produces the stored plan). Plan edits go through the `revise_plan` tool, which re-sends the plan.
+- **Two candidates** for a picture (`variants: 2`): both are shown, [option 1 / option 2 / keep original] swaps the pick
+  into every draft. **`/generate`** now uses nano_banana_pro with Ivy's three identity references and sends the picture
+  to the Generator topic. Videos are generated with natural ambient sound (no music, no voices) at the same credit price;
+  platform music for Reels/TikTok cannot be set through the API (only Instagram Stories, which have it).
+- **Learning**: `post_metrics` is refreshed daily (08:00 Israel) from Buffer, a plain-statistics digest goes to Scout on
+  Sundays, and plans receive a "what worked for Ivy" block once ≥3 posts have views. Daily generation can be paused with
+  the `pause_daily_generation` preference (only the scheduled run honors it).
+
 ## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.

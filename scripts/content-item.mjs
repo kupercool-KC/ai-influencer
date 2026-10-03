@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 // Glue between the GitHub Actions pipeline and the shared content_items record.
 //   upsert --run-id X --run-dir D [--status in_review]   record plan/media/source for a finished generation
+//   plan --run-id X --run-dir D                          record a PLAN awaiting the owner's approval (status planned)
+//   export-plan --run-id X --out FILE                    write the stored plan back as content_plan.json (approved -> produce)
 //   get --run-id X                                       print the item as JSON
 //   apply-revision --run-id X --slide N --url U --prompt P   swap picture N in every draft + update the item
 // Needs SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (+ BUFFER_API_KEY for apply-revision).
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { addNote, getItem, upsertItem } from '../lib/contentItems.js'
 import { replaceRunAsset } from '../lib/releaseGate.js'
@@ -29,6 +31,34 @@ if (cmd === 'upsert') {
     status: arg('status') || 'in_review',
   })
   console.log(`content item ${runId} recorded`)
+} else if (cmd === 'set-variants') {
+  // Two regenerated candidates for one picture, waiting for the owner's pick (webhook pick: buttons).
+  const runId = arg('run-id')
+  const item = await getItem(runId)
+  if (!item) throw new Error(`no content item ${runId}`)
+  await upsertItem(runId, { media: { ...item.media, pending_variants: { slide: Number(arg('slide')), urls: arg('urls').split(','), prompt: arg('prompt') } } })
+  console.log('variants saved')
+} else if (cmd === 'plan') {
+  const runId = arg('run-id'), dir = arg('run-dir')
+  const full = readJson(join(dir, 'content_plan.json'))
+  const inspire = readJson(join(dir, 'inspire.json'))
+  const summaryPath = join(dir, 'telegram_summary.txt')
+  const day0 = full?.days?.[0] || null
+  await upsertItem(runId, {
+    kind: day0?.video_prompt ? 'video' : (day0?.carousel_prompts?.length > 1 ? 'carousel' : 'image'),
+    source_url: inspire?.url || null,
+    source_summary: existsSync(summaryPath) ? readFileSync(summaryPath, 'utf8').slice(0, 3000) : null,
+    plan: day0,
+    media: { planned_days: full?.days || [] },
+    status: 'planned',
+  })
+  console.log(`plan ${runId} saved, awaiting approval`)
+} else if (cmd === 'export-plan') {
+  const item = await getItem(arg('run-id'))
+  if (!item) { console.error('not found'); process.exit(1) }
+  const days = item.media?.planned_days?.length ? item.media.planned_days : [item.plan]
+  writeFileSync(arg('out'), JSON.stringify({ days }, null, 2))
+  console.log(`exported ${days.length} day(s)`)
 } else if (cmd === 'get') {
   const item = await getItem(arg('run-id'))
   if (!item) { console.error('not found'); process.exit(1) }
@@ -49,6 +79,6 @@ if (cmd === 'upsert') {
   await addNote(runId, `picture ${slide + 1} regenerated (${changed} posts updated)`, 'generator')
   console.log(`replaced picture ${slide + 1} in ${changed} posts`)
 } else {
-  console.error('Usage: content-item.mjs <upsert|get|apply-revision> ...')
+  console.error('Usage: content-item.mjs <upsert|plan|export-plan|get|apply-revision> ...')
   process.exit(1)
 }

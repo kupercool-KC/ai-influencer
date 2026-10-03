@@ -14,6 +14,10 @@ on:
       instruction:
         description: "What to change, in the owner's words"
         required: true
+      variants:
+        description: "1 = replace the picture; 2 = generate two candidates and let the owner pick"
+        default: "1"
+        required: false
 
 run-name: "Ivy revise: ${{ inputs.run_id }}"
 
@@ -79,6 +83,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           IN_RUN: ${{ inputs.run_id }}
           IN_INSTR: ${{ inputs.instruction }}
+          IN_VARIANTS: ${{ inputs.variants }}
         run: |
           set -e
           source "$GITHUB_WORKSPACE/scripts/tg.sh"
@@ -93,6 +98,16 @@ jobs:
           SLIDE=$(jq -r '.slide' "$RUN_DIR/rev.json"); PROMPT=$(jq -r '.new_prompt' "$RUN_DIR/rev.json")
           REF_FLAGS=(); IFS=',' read -ra REFS <<< "$IVY_REFERENCES"
           for ref in "${REFS[@]}"; do REF_FLAGS+=(--image-references "$ref"); done
+          if [ "$IN_VARIANTS" = "2" ]; then
+            # Two candidates: nothing is swapped yet — the owner picks with the buttons (webhook pick:).
+            U1=$(gen_image "$PROMPT" 4:5); U2=$(gen_image "$PROMPT" 4:5)
+            node "$GITHUB_WORKSPACE/scripts/content-item.mjs" set-variants --run-id "$IN_RUN" --slide "$SLIDE" --urls "$U1,$U2" --prompt "$PROMPT"
+            node "$GITHUB_WORKSPACE/scripts/telegram-send.mjs" --chat "$TELEGRAM_IVY_CHAT_ID" --thread "$TELEGRAM_DISPATCH_THREAD_ID" \
+              --media "$(jq -nc --arg a "$U1" --arg b "$U2" '[{type:"photo", url:$a, caption:"אפשרות 1"}, {type:"photo", url:$b, caption:"אפשרות 2"}]')" || echo "warning: could not send the candidates"
+            KB=$(jq -nc --arg a "pick:$IN_RUN:1" --arg b "pick:$IN_RUN:2" --arg k "pick:$IN_RUN:0" '{inline_keyboard:[[{text:"✅ אפשרות 1", callback_data:$a},{text:"✅ אפשרות 2", callback_data:$b}],[{text:"↩️ השאר את המקורית", callback_data:$k}]]}')
+            tg_send "$TELEGRAM_DISPATCH_THREAD_ID" "🖼 <b>שתי אפשרויות לשקופית $((SLIDE + 1))</b>"$'\n'"• $(esc "$(jq -r '.summary_he' "$RUN_DIR/rev.json")")"$'\n\n'"👇 איזו נכנסת?" "$KB"
+            echo "variants=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           NEW_URL=$(gen_image "$PROMPT" 4:5)
           echo "new picture: $NEW_URL"
           node "$GITHUB_WORKSPACE/scripts/content-item.mjs" apply-revision --run-id "$IN_RUN" --slide "$SLIDE" --url "$NEW_URL" --prompt "$PROMPT"
@@ -102,7 +117,7 @@ jobs:
           echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Fresh preview with the approval buttons in Dispatch
-        if: steps.rev.outputs.skipped != 'true'
+        if: steps.rev.outputs.skipped != 'true' && steps.rev.outputs.variants != 'true'
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           IN_RUN: ${{ inputs.run_id }}

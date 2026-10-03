@@ -35,8 +35,9 @@
 import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, downloadTelegramFile, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
-import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
+import { TOOLS, runTool, parseInspirationRequest, startInspiration, startProduction } from '../../lib/telegramTools.js'
 import { runReleaseReminders } from '../../lib/releaseReminders.js'
+import { applyPickedVariant } from '../../lib/revision.js'
 import { createManualPost, uploadToStorage, TRIGGER_RE } from '../../lib/manualPost.js'
 import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, cancelScheduledGroup, postponeScheduledGroup, heSlot } from '../../lib/releaseGate.js'
 
@@ -323,17 +324,21 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const [personaSummary, contextDoc, openQueue, prefs, pendingRev] = await Promise.all([
+  const [personaSummary, contextDoc, openQueue, prefs, pendingRev, pendingPlan] = await Promise.all([
     livePersonaSummary(), fetchContextDoc(),
     owner ? openQueueSummary().catch(() => '(unavailable)') : Promise.resolve(''),
     owner ? supabaseAdmin().from('owner_preferences').select('key, value').not('key', 'like', 'pending_revision:%').then(r => r.data || []).catch(() => []) : Promise.resolve([]),
     owner ? supabaseAdmin().from('owner_preferences').select('value, updated_at').eq('key', `pending_revision:${chatId}:${threadId}`).maybeSingle().then(r => r.data).catch(() => null) : Promise.resolve(null),
+    owner ? supabaseAdmin().from('owner_preferences').select('value, updated_at').eq('key', `pending_plan_edit:${chatId}:${threadId}`).maybeSingle().then(r => r.data).catch(() => null) : Promise.resolve(null),
   ])
   const prefsBlock = prefs.length ? `\n\nOWNER'S STANDING INSTRUCTIONS (always follow; add new ones with set_preference):\n${prefs.map(p => `- ${p.value}`).join('\n')}` : ''
   const revisionBlock = pendingRev && Date.now() - new Date(pendingRev.updated_at).getTime() < 30 * 60000
     ? `\n\nOPEN REVISION: the owner just tapped ✏️ on run_id=${pendingRev.value}. His next message is the change he wants — call revise_content for that run (scope caption or image), then confirm in one line.`
     : ''
-  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\nOPEN QUEUE (content waiting in Buffer, not yet published — newest first):\n${openQueue}${prefsBlock}${revisionBlock}\n\n${TOOLS_CONTEXT}` : ''}`
+  const planEditBlock = pendingPlan && Date.now() - new Date(pendingPlan.updated_at).getTime() < 30 * 60000
+    ? `\n\nOPEN PLAN EDIT: the owner just tapped ✏️ on a PLAN (not yet produced, no credits spent), run_id=${pendingPlan.value}. His next message is the change — call get_content_item for that run_id to read the plan, then revise_plan with the changed fields (you write them, following the tool's hard rules). It re-sends the plan with the buttons.`
+    : ''
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\nOPEN QUEUE (content waiting in Buffer, not yet published — newest first):\n${openQueue}${prefsBlock}${revisionBlock}${planEditBlock}\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
@@ -476,6 +481,50 @@ export default async function handler(req, res) {
           }
           return res.status(200).end()
         }
+      }
+
+      if ((cq.data || '').startsWith('pick:')) {
+        // One of two regenerated candidates (or "keep the original"): swap it into every draft.
+        const [, runId, nStr] = cq.data.split(':')
+        const cbThread = cq.message.message_thread_id ? String(cq.message.message_thread_id) : ''
+        await answerCallbackQuery(cq.id, 'מחליף…')
+        const r = await applyPickedVariant(runId, Number(nStr)).catch(e => ({ ok: false, reason: e.message }))
+        await editMessageText(cbChatId, cq.message.message_id, `${(cq.message.text || '').slice(0, 3000)}\n\n${r.ok ? (r.kept ? '↩️ נשארה התמונה המקורית' : `✅ נבחרה האפשרות — שקופית ${r.slide + 1} הוחלפה ב-${r.changed} טיוטות`) : `❌ ${r.reason}`}`, { reply_markup: { inline_keyboard: [] } })
+        if (r.ok) await sendMessage(cbChatId, '👇 איך ממשיכים?', { ...threadOpts(cbThread), reply_markup: dispatchKeyboard(runId) })
+        return res.status(200).end()
+      }
+
+      if ((cq.data || '').startsWith('plan:')) {
+        // The plan waits (no credits spent) until the owner decides: start production, change it, or cancel.
+        const [, action, runId] = cq.data.split(':')
+        const db = supabaseAdmin()
+        const cbThread = cq.message.message_thread_id ? String(cq.message.message_thread_id) : ''
+        const { data: item } = await db.from('content_items').select('status').eq('run_id', runId).maybeSingle()
+        const close = (text) => editMessageText(cbChatId, cq.message.message_id, `${(cq.message.text || '').slice(0, 3500)}\n\n${text}`, { reply_markup: { inline_keyboard: [] } })
+        if (!item || item.status !== 'planned') {
+          await answerCallbackQuery(cq.id, 'כבר טופל')
+          await close(`ℹ️ התוכנית כבר ${item?.status === 'deleted' ? 'בוטלה' : 'בטיפול'}`)
+        } else if (action === 'go') {
+          await answerCallbackQuery(cq.id, 'מתחיל ייצור…')
+          // 'planned' -> 'in_production' first so a double tap can't start two productions.
+          await db.from('content_items').update({ status: 'in_production', updated_at: new Date().toISOString() }).eq('run_id', runId)
+          try {
+            await startProduction(runId)
+            await close('🎨 אושר — מתחיל לייצר. התוצאה תגיע ל-Dispatch לאישור עוד כמה דקות')
+          } catch (e) {
+            await db.from('content_items').update({ status: 'planned' }).eq('run_id', runId)
+            await close(`❌ לא הצלחתי להתחיל: ${e.message}`)
+          }
+        } else if (action === 'edit') {
+          await answerCallbackQuery(cq.id, 'כתוב מה לשנות')
+          await db.from('owner_preferences').upsert({ key: `pending_plan_edit:${cbChatId}:${cbThread}`, value: runId, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+          await sendMessage(cbChatId, '✏️ *מה לשנות בתוכנית?*\n• למשל: "שקופית 2 בסוף היום", "כיתוב קצר יותר", "בלי הסטורי"\n• אחרי השינוי אשלח את התוכנית המעודכנת עם אותם כפתורים', threadOpts(cbThread))
+        } else {
+          await answerCallbackQuery(cq.id, 'בוטל')
+          await db.from('content_items').update({ status: 'deleted', updated_at: new Date().toISOString() }).eq('run_id', runId)
+          await close('🗑 התוכנית בוטלה — לא הוצאו קרדיטים')
+        }
+        return res.status(200).end()
       }
 
       if ((cq.data || '').startsWith('rev:')) {
@@ -740,10 +789,13 @@ export default async function handler(req, res) {
     if (text.startsWith('/generate')) {
       const prompt = text.replace('/generate', '').trim()
       if (!prompt) { await sendMessage(chatId, MENU_TEXT.generate, threadOpts(threadId)); return res.status(200).end() }
+      // Same model + the same three identity references as the pipeline, so a free-text prompt is still IVY (the old
+      // gpt_image_2 call had no references and made "someone else"). The picture arrives in the Generator topic.
+      const IVY_REFS = ['01-front-smile.jpg', '05-threequarter-right-golden.jpg', '04-profile-overcast.jpg'].map(f => `docs/personas/Ivy Vale/soul-training/${f}`).join(',')
       await dispatchWorkflow('higgsfield-generate.yml', {
-        model: 'gpt_image_2', prompt, aspect_ratio: '9:16', quality: 'high', resolution: '2k',
+        model: 'nano_banana_pro', prompt, image_references: IVY_REFS, aspect_ratio: '4:5', quality: 'none', resolution: '2k',
       })
-      await sendMessage(chatId, `Generation queued. Track it: ${runsUrl()}`, threadOpts(threadId))
+      await sendMessage(chatId, '🎨 *מייצר* — התמונה (עם הזהות של Ivy) תגיע לטופיק Generator בעוד כדקה-שתיים', threadOpts(threadId))
       return res.status(200).end()
     }
 

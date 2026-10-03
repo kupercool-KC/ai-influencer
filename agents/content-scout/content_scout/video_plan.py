@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from content_scout.persona_content import _load_persona, content_direction
-from content_scout.prefs import preferences_block
+from content_scout.prefs import learning_block, preferences_block
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
 IDENTITY_OPENER = (
@@ -142,7 +142,7 @@ def assemble_prompt(plan: dict[str, Any]) -> str:
         f"PROPS: {plan.get('props') or 'none'}\n"
         f"ENVIRONMENT: {plan['environment']}\n"
         f"STYLE ANCHOR: {STYLE_ANCHOR}. @image_2 informs identity only — never scene, wardrobe or lighting.\n"
-        "DELIVERY: No dialogue.\n"
+        "DELIVERY: No dialogue. Natural ambient sound of the scene only (wind, waves, footsteps, fabric), no voices.\n"
         "LOGIC RULE: One continuous take per beat, no unmotivated cuts. Face of @image_1 is fixed and "
         "consistent throughout — same bone structure, eye color, skin tone, jawline, nose. Zero drift. "
         "Only one @image_1 in frame. Lighting warm and golden throughout, never cool. Hand gestures "
@@ -183,6 +183,7 @@ mechanic of a real source post (below) — adapting, never copying.
 === STANDING CONTENT DIRECTION ===
 {content_direction()}
 {preferences_block()}
+{learning_block()}
 
 {PLAN_SCHEMA}"""
 
