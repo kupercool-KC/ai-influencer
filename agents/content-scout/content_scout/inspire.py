@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -70,7 +71,8 @@ def _fetch_images(urls: list[str], frames_dir: Path) -> list[Path]:
             dest = frames_dir / f"keyframe_{i:02d}.jpg"
             _save_image(r.content, dest)
             saved.append(dest)
-        except Exception:  # noqa: BLE001 — one bad slide shouldn't sink the others
+        except Exception as exc:  # noqa: BLE001 — one bad slide shouldn't sink the others
+            print(f"[inspire] could not fetch image {u[:80]}: {type(exc).__name__}: {exc}", file=sys.stderr)
             continue
     return saved
 
@@ -108,8 +110,8 @@ def _keyframes(raw: RawVideo, platform: str, video_dir: Path) -> tuple[list[Path
             cleanup_raw_frames(video_dir / "raw_frames")
             if frames:
                 return frames, "video"
-        except Exception:  # noqa: BLE001 — fall through to the still-image path
-            pass
+        except Exception as exc:  # noqa: BLE001 — fall through to the still-image path
+            print(f"[inspire] video download/sampling failed ({type(exc).__name__}: {exc}); trying stills", file=sys.stderr)
     urls: list[str] = list(raw.raw.get("image_urls") or [])
     if not urls and platform == "tiktok":
         # photo-mode posts: Apify lists the slides under imagePost.images[].imageURL.urlList
@@ -119,6 +121,8 @@ def _keyframes(raw: RawVideo, platform: str, video_dir: Path) -> tuple[list[Path
                 urls.append(u)
     if not urls and raw.thumbnail_url:
         urls = [raw.thumbnail_url]
+    print(f"[inspire] still-image candidates: {urls[:3]} (direct_media_url={raw.direct_media_url!r}, "
+          f"raw keys={sorted(raw.raw)[:25]})", file=sys.stderr)
     frames = _fetch_images(urls, frames_dir)
     if not frames:
         raise InspirationError("I opened the post but couldn't get its picture or video.")

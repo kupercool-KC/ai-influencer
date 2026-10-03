@@ -146,7 +146,7 @@ mechanic of a real source post (below) — adapting, never copying.
 
     feedback = ""
     for attempt in range(3):
-        raw = _call_claude(api_key, [{"type": "text", "text": base_prompt + feedback}], max_tokens=1800)
+        raw = _call_claude(api_key, [{"type": "text", "text": base_prompt + feedback}], max_tokens=3500)
         plan = json.loads(_strip_fences(raw))
         errs = validate_plan(plan)
         if not errs:
