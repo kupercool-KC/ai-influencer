@@ -351,7 +351,7 @@ video (Reel + TikTok video).
 ### 12.2 Standing content direction (Iddo, 2026-10-03)
 
 Encoded in `persona_content.py` and applied to every plan (image, carousel, video):
-- **Instagram**: one sentence max, 2-4 hashtags; posts of 1-5 related photos preferred (carousel = default format).
+- **Instagram**: one sentence max, 2-4 hashtags; carousel of 2-3 related photos is the standard format (a single photo is rarer/special, ~1 day in 5-6). Every IG post (and TikTok video) carries the AI-generated label.
 - **TikTok**: its own long, natural, unfiltered caption (many sentences, thinking-out-loud) with 10-20 hashtags
   (`tiktok_caption` / `tiktok_hashtags` in the plan).
 - **Season**: wardrobe/light/water follow the real current Byron Bay season (`byron_season_note`).

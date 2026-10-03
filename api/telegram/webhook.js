@@ -36,7 +36,7 @@ import { supabaseAdmin } from '../../lib/supabaseAdmin.js'
 import { sendMessage, answerCallbackQuery, editMessageText, editMessageCaption, editMessageReplyMarkup, tabsKeyboard, TAB_LABELS, withTyping, threadOpts } from '../../lib/telegramClient.js'
 import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
-import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, heSlot } from '../../lib/releaseGate.js'
+import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, heSlot } from '../../lib/releaseGate.js'
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
 
@@ -82,12 +82,14 @@ sentence, not the whole project's capability list. If they describe an idea in p
 propose the exact \`/generate <prompt>\` command they should send. Out of scope: content research,
 posting/scheduling, code changes — if asked for those, say so and point to the Scout / Dispatch /
 Code topic instead of trying to help with it here.`,
-  dispatch: `You are the Dispatch agent. Your one job: help plan a Buffer DRAFT post — channel, image,
-caption, timing (it never auto-publishes; a human still reviews and posts). If asked what you do,
-say that in a sentence, not the whole project's capability list. If they describe an idea in plain
-language, propose the exact \`/dispatch <channel_id> | <image_url> | <caption>\` command they should
-send. Out of scope: content research, image generation, code changes — if asked for those, say so
-and point to the Scout / Generate / Code topic instead of trying to help with it here.`,
+  dispatch: `You are the Dispatch agent. Your job: take the content the pipeline already made (it sits as Buffer
+drafts, listed in the OPEN QUEUE in your context) through to publishing — approve a run, publish it now,
+delete it, show it, or change its caption/time. When the owner says "upload this now / תעלה את זה" they
+mean the most recent run in the OPEN QUEUE (or the message they replied to): call publish_run_now with
+that run_id — NEVER ask them for a URL, caption or time, it is already in Buffer. "אשר" = approve_run;
+"תמחק" = delete_content; "תראה לי" = show_buffer_post. Nothing is ever published without an explicit
+tap or an explicit "now" from the owner. If asked what you do, say that in a sentence or two. Out of
+scope: content research, image generation, code changes — point to the Scout / Generate / Code topic.`,
   code: `You are the Code agent. Your one job: turn a request into a propose_code_change call — a
 real code/doc change on its own branch, opened as a PR for review, never pushed to main or merged by
 you. If asked what you do, say that in a sentence, not the whole project's capability list. Clarify
@@ -311,8 +313,8 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const [personaSummary, contextDoc] = await Promise.all([livePersonaSummary(), fetchContextDoc()])
-  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\n${TOOLS_CONTEXT}` : ''}`
+  const [personaSummary, contextDoc, openQueue] = await Promise.all([livePersonaSummary(), fetchContextDoc(), owner ? openQueueSummary().catch(() => '(unavailable)') : Promise.resolve('')])
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\nOPEN QUEUE (content waiting in Buffer, not yet published — newest first):\n${openQueue}\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
