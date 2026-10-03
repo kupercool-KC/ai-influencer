@@ -368,6 +368,24 @@ The owner can post without the pipeline: send photo(s) / a video (or an album) w
 Photos → IG post/carousel (up to 10) + TikTok photo post; video → IG Reel + TikTok video; AI label on all.
 Code: `lib/manualPost.js`, handler in `api/telegram/webhook.js`.
 
+### 12.4 Phase 2: one shared record, tweaks, pushes (added 2026-10-03)
+
+- **Shared content item** (`content_items`, one per run_id): source link, plan (prompts + captions), pictures, status
+  (planned → in_review → approved → scheduled → published/failed/deleted) and the owner's notes. Every Telegram button
+  and agent tool carries the run_id, so Scout → Generator → Dispatch hand work to each other by that id.
+- **Dispatch approval keyboard**: ✅ queue (asks again 15 min before) · 🌙 approve + publish automatically (scheduled in
+  Buffer at the 15-minute mark, with 🛑 cancel / ⏭ postpone) · ✏️ tweak · 🗑 delete. The cron also reports what actually
+  happened to released posts (posted / failed) and sends a 07:00 (Israel) summary; a failing cron alerts once an hour.
+- **Tweaks** (`ivy-revise.yml`, `content_scout.revise`, tool `revise_content`): captions edit instantly; "slide 2 with
+  more sun" re-plans and regenerates ONLY that picture (~2 credits), swaps it into every draft and re-sends the preview.
+- **Scout pushes**: each scan sends the 3 best new posts — ranked by how far they beat their OWN creator's usual — to the
+  Scout topic with [🎨 do this / ⏭ skip]; watched accounts live in `inspiration_accounts` (tools add/remove/list);
+  `inspiration_candidates` stops repeats.
+- **Owner preferences** (`owner_preferences`, tools set/list/delete_preference): "from now on ..." is stored once and
+  injected into every agent and every plan prompt.
+- **Quality/cost**: every generated still is checked against Ivy's reference (same person, no text, anatomy, limits) and
+  regenerated once on failure; the Dispatch message shows the credit balance and days to renewal; generation stops below 12.
+
 ## 13. Open items
 
 - ~~Model comparison test~~ — done 2026-09-30 (see §9.2 rules 3–4). Seedance 2.0 Mini wins.

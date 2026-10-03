@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from content_scout.persona_content import _load_persona, content_direction
+from content_scout.prefs import preferences_block
 from content_scout.visual.auto_analyze import _call_claude, _strip_fences
 
 IDENTITY_OPENER = (
@@ -181,6 +182,7 @@ mechanic of a real source post (below) — adapting, never copying.
 {direction}
 === STANDING CONTENT DIRECTION ===
 {content_direction()}
+{preferences_block()}
 
 {PLAN_SCHEMA}"""
 

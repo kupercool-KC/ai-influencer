@@ -38,7 +38,15 @@ import { dispatchWorkflow, runsUrl } from '../../lib/githubDispatch.js'
 import { TOOLS, runTool, parseInspirationRequest, startInspiration } from '../../lib/telegramTools.js'
 import { runReleaseReminders } from '../../lib/releaseReminders.js'
 import { createManualPost, uploadToStorage, TRIGGER_RE } from '../../lib/manualPost.js'
-import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, heSlot } from '../../lib/releaseGate.js'
+import { approveRun, releaseGroup, postponeGroup, skipGroup, deleteRun, openQueueSummary, cancelScheduledGroup, postponeScheduledGroup, heSlot } from '../../lib/releaseGate.js'
+
+// The Dispatch approval keyboard: queue (asks again 15 min before), auto-publish (pre-approved, cancellable),
+// tweak, delete. Callback data stays under Telegram's 64-byte limit: prefix + run_id.
+const dispatchKeyboard = (runId) => ({ inline_keyboard: [
+  [{ text: '✅ אשר לתור (תזכורת לפני)', callback_data: `approve_ivy:${runId}` }],
+  [{ text: '🌙 אשר ופרסם אוטומטית', callback_data: `approve_auto:${runId}` }],
+  [{ text: '✏️ שינוי', callback_data: `rev:${runId}` }, { text: '🗑 מחק', callback_data: `del:${runId}` }],
+] })
 
 const KNOWN_MODES = ['scout', 'generate', 'dispatch', 'code', 'chat']
 
@@ -315,8 +323,17 @@ async function askClaude(chatId, threadId, mode, userText, owner) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return 'ANTHROPIC_API_KEY is not configured on the server.'
 
-  const [personaSummary, contextDoc, openQueue] = await Promise.all([livePersonaSummary(), fetchContextDoc(), owner ? openQueueSummary().catch(() => '(unavailable)') : Promise.resolve('')])
-  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\nOPEN QUEUE (content waiting in Buffer, not yet published — newest first):\n${openQueue}\n\n${TOOLS_CONTEXT}` : ''}`
+  const [personaSummary, contextDoc, openQueue, prefs, pendingRev] = await Promise.all([
+    livePersonaSummary(), fetchContextDoc(),
+    owner ? openQueueSummary().catch(() => '(unavailable)') : Promise.resolve(''),
+    owner ? supabaseAdmin().from('owner_preferences').select('key, value').not('key', 'like', 'pending_revision:%').then(r => r.data || []).catch(() => []) : Promise.resolve([]),
+    owner ? supabaseAdmin().from('owner_preferences').select('value, updated_at').eq('key', `pending_revision:${chatId}:${threadId}`).maybeSingle().then(r => r.data).catch(() => null) : Promise.resolve(null),
+  ])
+  const prefsBlock = prefs.length ? `\n\nOWNER'S STANDING INSTRUCTIONS (always follow; add new ones with set_preference):\n${prefs.map(p => `- ${p.value}`).join('\n')}` : ''
+  const revisionBlock = pendingRev && Date.now() - new Date(pendingRev.updated_at).getTime() < 30 * 60000
+    ? `\n\nOPEN REVISION: the owner just tapped ✏️ on run_id=${pendingRev.value}. His next message is the change he wants — call revise_content for that run (scope caption or image), then confirm in one line.`
+    : ''
+  const system = `${PROJECT_CONTEXT}\n\nLive persona status (queried fresh right now, not hardcoded — trust this over any older-sounding claim anywhere else in this prompt):\n${personaSummary}\n\nPipeline/architecture reference (fetched fresh from main, auto-updated daily — see the doc's own header):\n${contextDoc}\n\n${AGENT_CONTEXT[mode] || AGENT_CONTEXT.chat}\n\n${CHOICES_CONTEXT}\n\n${STYLE_CONTEXT}${owner ? `\n\nOPEN QUEUE (content waiting in Buffer, not yet published — newest first):\n${openQueue}${prefsBlock}${revisionBlock}\n\n${TOOLS_CONTEXT}` : ''}`
   const tools = owner ? toolsForMode(mode) : undefined
 
   const history = await getHistory(chatId, threadId, mode)
@@ -392,8 +409,9 @@ export default async function handler(req, res) {
         return res.status(200).end()
       }
 
-      if ((cq.data || '').startsWith('approve_ivy:')) {
-        const runId = cq.data.slice('approve_ivy:'.length)
+      if ((cq.data || '').startsWith('approve_ivy:') || (cq.data || '').startsWith('approve_auto:')) {
+        const auto = cq.data.startsWith('approve_auto:')
+        const runId = cq.data.slice(cq.data.indexOf(':') + 1)
         await answerCallbackQuery(cq.id, 'מתזמן…')
         // cq.message.text comes back already decoded (entities stripped), so it must be
         // re-escaped before resending with parse_mode HTML, or a stray &/</> from a
@@ -412,9 +430,11 @@ export default async function handler(req, res) {
         }
         const original = (isMedia ? cq.message.caption : cq.message.text) || ''
         try {
-          const n = await approveRun(runId)
+          const n = await approveRun(runId, { auto })
           const summary = n
-            ? `✅ <b>אושר</b> — ${n} פריטים בתור לפרסום\n• 15 דקות לפני כל פרסום אשלח לך את התוכן עצמו\n• ורק אחרי הלחיצה שלך הוא יעלה`
+            ? (auto
+              ? `🌙 <b>אושר לפרסום אוטומטי</b> — ${n} פריטים\n• יעלו בזמן המתוכנן בלי שתצטרך ללחוץ\n• 15 דקות לפני אשלח עדכון, ותוכל לבטל או לדחות`
+              : `✅ <b>אושר</b> — ${n} פריטים בתור לפרסום\n• 15 דקות לפני כל פרסום אשלח לך את התוכן עצמו\n• ורק אחרי הלחיצה שלך הוא יעלה`)
             : '⚠️ לא נמצאו פריטים ממתינים להרצה הזו — כנראה כבר אושרה'
           await edit(fit(original, summary))
         } catch (e) {
@@ -436,10 +456,7 @@ export default async function handler(req, res) {
             ]] })
           } else if (step === 'delno') {
             await answerCallbackQuery(cq.id, 'בסדר')
-            await editMessageReplyMarkup(cbChatId, cq.message.message_id, { inline_keyboard: [
-              [{ text: '✅ אשר לתור', callback_data: `approve_ivy:${runId}` }],
-              [{ text: '🗑 מחק', callback_data: `del:${runId}` }],
-            ] })
+            await editMessageReplyMarkup(cbChatId, cq.message.message_id, dispatchKeyboard(runId))
           } else {
             await answerCallbackQuery(cq.id, 'מוחק…')
             const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -461,6 +478,41 @@ export default async function handler(req, res) {
         }
       }
 
+      if ((cq.data || '').startsWith('rev:')) {
+        // ✏️ on a Dispatch message: remember which run, then the owner's next message in this topic is the instruction.
+        const runId = cq.data.slice(4)
+        const cbThread = cq.message.message_thread_id ? String(cq.message.message_thread_id) : ''
+        await answerCallbackQuery(cq.id, 'כתוב מה לשנות')
+        await supabaseAdmin().from('owner_preferences').upsert({ key: `pending_revision:${cbChatId}:${cbThread}`, value: runId, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+        await sendMessage(cbChatId, '✏️ *מה לשנות?*\n• כתוב בקצרה, למשל: "שקופית 2 עם יותר שמש", "בגד אחר", "כיתוב קצר יותר"\n• שינוי תמונה עולה כ-2 קרדיטים ולוקח כמה דקות', threadOpts(cbThread))
+        return res.status(200).end()
+      }
+
+      if ((cq.data || '').startsWith('insp:')) {
+        // Scout's pushed inspiration: "תעשה כזה" starts the whole flow from that post, "דלג" just closes it.
+        const [, action, candId] = cq.data.split(':')
+        const db = supabaseAdmin()
+        const { data: cand } = await db.from('inspiration_candidates').select('*').eq('id', candId).maybeSingle()
+        const isMedia = Boolean(cq.message.photo || cq.message.video)
+        const body = (text) => isMedia
+          ? editMessageCaption(cbChatId, cq.message.message_id, `${(cq.message.caption || '').slice(0, 800)}\n\n${text}`, { reply_markup: { inline_keyboard: [] } })
+          : editMessageText(cbChatId, cq.message.message_id, `${cq.message.text}\n\n${text}`, { reply_markup: { inline_keyboard: [] } })
+        if (!cand) { await answerCallbackQuery(cq.id, 'לא נמצא'); return res.status(200).end() }
+        if (action === 'go') {
+          await answerCallbackQuery(cq.id, 'מתחיל…')
+          try {
+            await startInspiration({ url: cand.url, kind: 'carousel', note: '' })
+            await db.from('inspiration_candidates').update({ status: 'used' }).eq('id', candId)
+            await body('🎨 מתחיל — התוצאה תגיע ל-Generator ול-Dispatch בעוד כמה דקות')
+          } catch (e) { await body(`❌ לא הצלחתי להתחיל: ${e.message}`) }
+        } else {
+          await answerCallbackQuery(cq.id, 'דילגתי')
+          await db.from('inspiration_candidates').update({ status: 'skipped' }).eq('id', candId)
+          await body('⏭ דולג')
+        }
+        return res.status(200).end()
+      }
+
       if ((cq.data || '').startsWith('rel:')) {
         const [, action, rowId] = cq.data.split(':')
         const escapeHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -473,6 +525,12 @@ export default async function handler(req, res) {
             result = r.scheduled
               ? `✅ <b>אושר לפרסום</b> — ${r.scheduled} פריטים יעלו ${heSlot(r.dueAt)}` + (r.failures.length ? `\n⚠️ ${r.failures.length} נכשלו:\n${r.failures.slice(0, 3).map(escapeHtml).join('\n')}` : '')
               : `⚠️ ${r.failures.map(escapeHtml).join('\n')}`
+          } else if (action === 'cancel') {
+            const r = await cancelScheduledGroup(rowId)
+            result = r.total ? `🛑 <b>הפרסום בוטל</b> — ${r.cancelled} מתוך ${r.total} חזרו לטיוטות` : '⚠️ אין מה לבטל — כבר עלה או טופל'
+          } else if (action === 'slater') {
+            const r = await postponeScheduledGroup(rowId, 24)
+            result = r.moved ? `⏭ <b>נדחה ליום הבא</b> — יעלה ${heSlot(r.next)}` : '⚠️ אין מה לדחות — כבר עלה או טופל'
           } else if (action === 'later') {
             const next = await postponeGroup(rowId, 24)
             result = next ? `⏭ <b>נדחה ליום הבא</b> — תקבל תזכורת שוב לפני ${heSlot(next)}` : '⚠️ אין מה לדחות — כבר טופל'
